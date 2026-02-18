@@ -1,0 +1,255 @@
+package coordinator
+
+import (
+	"fmt"
+	"sort"
+	"strings"
+	"time"
+)
+
+type AgentStatus string
+
+const (
+	StatusActive  AgentStatus = "active"
+	StatusBlocked AgentStatus = "blocked"
+	StatusDone    AgentStatus = "done"
+	StatusIdle    AgentStatus = "idle"
+	StatusError   AgentStatus = "error"
+)
+
+func (s AgentStatus) Valid() bool {
+	switch s {
+	case StatusActive, StatusBlocked, StatusDone, StatusIdle, StatusError:
+		return true
+	}
+	return false
+}
+
+func (s AgentStatus) Emoji() string {
+	switch s {
+	case StatusActive:
+		return "🟢"
+	case StatusBlocked:
+		return "🔴"
+	case StatusDone:
+		return "✅"
+	case StatusIdle:
+		return "⏸️"
+	case StatusError:
+		return "❌"
+	}
+	return "❓"
+}
+
+type AgentUpdate struct {
+	Status    AgentStatus `json:"status"`
+	Summary   string      `json:"summary"`
+	Phase     string      `json:"phase,omitempty"`
+	TestCount *int        `json:"test_count,omitempty"`
+	Items     []string    `json:"items,omitempty"`
+	Sections  []Section   `json:"sections,omitempty"`
+	Questions []string    `json:"questions,omitempty"`
+	Blockers  []string    `json:"blockers,omitempty"`
+	NextSteps string      `json:"next_steps,omitempty"`
+	FreeText  string      `json:"free_text,omitempty"`
+	UpdatedAt time.Time   `json:"updated_at"`
+}
+
+type Section struct {
+	Title string   `json:"title"`
+	Items []string `json:"items,omitempty"`
+	Table *Table   `json:"table,omitempty"`
+}
+
+type Table struct {
+	Headers []string   `json:"headers"`
+	Rows    [][]string `json:"rows"`
+}
+
+type KnowledgeSpace struct {
+	Name            string                  `json:"name"`
+	Agents          map[string]*AgentUpdate `json:"agents"`
+	SharedContracts string                  `json:"shared_contracts,omitempty"`
+	Archive         string                  `json:"archive,omitempty"`
+	CreatedAt       time.Time               `json:"created_at"`
+	UpdatedAt       time.Time               `json:"updated_at"`
+}
+
+func NewKnowledgeSpace(name string) *KnowledgeSpace {
+	now := time.Now().UTC()
+	return &KnowledgeSpace{
+		Name:      name,
+		Agents:    make(map[string]*AgentUpdate),
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+}
+
+func (ks *KnowledgeSpace) RenderMarkdown() string {
+	return ks.RenderMarkdownWithStaleness(0)
+}
+
+func (ks *KnowledgeSpace) RenderMarkdownWithStaleness(staleThreshold time.Duration) string {
+	var b strings.Builder
+
+	b.WriteString("# ")
+	b.WriteString(ks.Name)
+	b.WriteString("\n\n")
+
+	b.WriteString("## Session Dashboard\n\n")
+	b.WriteString("| **Session** | **Status** | **Phase** | **Tests** | **Summary** |\n")
+	b.WriteString("| ----------- | ---------- | --------- | --------- | ----------- |\n")
+
+	sortedNames := make([]string, 0, len(ks.Agents))
+	for name := range ks.Agents {
+		sortedNames = append(sortedNames, name)
+	}
+	sort.Strings(sortedNames)
+
+	for _, name := range sortedNames {
+		agent := ks.Agents[name]
+		phase := agent.Phase
+		if phase == "" {
+			phase = "—"
+		}
+		tests := "—"
+		if agent.TestCount != nil {
+			tests = fmt.Sprintf("%d", *agent.TestCount)
+		}
+		staleMarker := ""
+		if staleThreshold > 0 && agent.Status != StatusDone && agent.Status != StatusError {
+			if time.Since(agent.UpdatedAt) > staleThreshold {
+				staleMarker = " ⚠️ STALE"
+			}
+		}
+		b.WriteString(fmt.Sprintf("| %s | %s %s%s | %s | %s | %s |\n",
+			name, agent.Status.Emoji(), agent.Status, staleMarker, phase, tests, agent.Summary))
+	}
+	b.WriteString("\n---\n\n")
+
+	if ks.SharedContracts != "" {
+		b.WriteString("## Shared Contracts\n\n")
+		b.WriteString(ks.SharedContracts)
+		b.WriteString("\n\n---\n\n")
+	}
+
+	b.WriteString("## Agent Sections\n\n")
+	for _, name := range sortedNames {
+		agent := ks.Agents[name]
+		b.WriteString("### ")
+		b.WriteString(name)
+		b.WriteString("\n\n")
+		b.WriteString(renderAgentSection(name, agent))
+		b.WriteString("\n")
+	}
+
+	if ks.Archive != "" {
+		b.WriteString("---\n\n## Archive\n\n")
+		b.WriteString(ks.Archive)
+		b.WriteString("\n")
+	}
+
+	return b.String()
+}
+
+func renderAgentSection(name string, agent *AgentUpdate) string {
+	var b strings.Builder
+
+	b.WriteString(fmt.Sprintf("[%s] %s — **%s**",
+		name, agent.UpdatedAt.Format("2006-01-02 15:04"), agent.Summary))
+	if agent.TestCount != nil {
+		b.WriteString(fmt.Sprintf(" %d tests.", *agent.TestCount))
+	}
+	b.WriteString("\n\n")
+
+	for _, item := range agent.Items {
+		b.WriteString("- ")
+		b.WriteString(item)
+		b.WriteString("\n")
+	}
+	if len(agent.Items) > 0 {
+		b.WriteString("\n")
+	}
+
+	for _, sec := range agent.Sections {
+		b.WriteString("#### ")
+		b.WriteString(sec.Title)
+		b.WriteString("\n\n")
+		for _, item := range sec.Items {
+			b.WriteString("- ")
+			b.WriteString(item)
+			b.WriteString("\n")
+		}
+		if sec.Table != nil {
+			b.WriteString(renderTable(sec.Table))
+		}
+		b.WriteString("\n")
+	}
+
+	if len(agent.Questions) > 0 {
+		b.WriteString("#### Questions\n\n")
+		for _, q := range agent.Questions {
+			b.WriteString("- [?BOSS] ")
+			b.WriteString(q)
+			b.WriteString("\n")
+		}
+		b.WriteString("\n")
+	}
+
+	if len(agent.Blockers) > 0 {
+		b.WriteString("#### Blockers\n\n")
+		for _, bl := range agent.Blockers {
+			b.WriteString("- 🔴 ")
+			b.WriteString(bl)
+			b.WriteString("\n")
+		}
+		b.WriteString("\n")
+	}
+
+	if agent.NextSteps != "" {
+		b.WriteString(agent.NextSteps)
+		b.WriteString("\n\n")
+	}
+
+	if agent.FreeText != "" {
+		b.WriteString(agent.FreeText)
+		b.WriteString("\n\n")
+	}
+
+	return b.String()
+}
+
+func renderTable(t *Table) string {
+	if len(t.Headers) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("| ")
+	b.WriteString(strings.Join(t.Headers, " | "))
+	b.WriteString(" |\n| ")
+	for i := range t.Headers {
+		if i > 0 {
+			b.WriteString(" | ")
+		}
+		b.WriteString("---")
+	}
+	b.WriteString(" |\n")
+	for _, row := range t.Rows {
+		b.WriteString("| ")
+		padded := make([]string, len(t.Headers))
+		copy(padded, row)
+		b.WriteString(strings.Join(padded, " | "))
+		b.WriteString(" |\n")
+	}
+	return b.String()
+}
+
+func (u *AgentUpdate) Validate() error {
+	if !u.Status.Valid() {
+		return fmt.Errorf("invalid status %q: must be one of active, blocked, done, idle, error", u.Status)
+	}
+	if strings.TrimSpace(u.Summary) == "" {
+		return fmt.Errorf("summary is required")
+	}
+	return nil
+}

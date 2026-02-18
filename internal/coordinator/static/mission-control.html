@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Boss</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0b0e14;--bg2:#111620;--bg3:#171d2a;--bg4:#1d2535;
+  --border:#242d3d;--border2:#2e3a50;
+  --text:#c8d1e0;--text2:#8892a6;--text3:#5c6578;
+  --blue:#4d9eff;--blue2:#2d7ff9;--blue-bg:rgba(77,158,255,.08);
+  --green:#3fb950;--green-bg:rgba(63,185,80,.1);
+  --yellow:#d29922;--yellow-bg:rgba(210,153,34,.1);
+  --red:#f85149;--red-bg:rgba(248,81,73,.1);
+  --purple:#a371f7;--purple-bg:rgba(163,113,247,.1);
+  --orange:#db6d28;--orange-bg:rgba(219,109,40,.1);
+  --cyan:#39d2c0;--cyan-bg:rgba(57,210,192,.1);
+  --radius:10px;--radius-sm:6px;
+}
+html,body{height:100%;width:100%;overflow-x:hidden}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Inter",Helvetica,Arial,sans-serif;
+  background:var(--bg);color:var(--text);line-height:1.5;font-size:14px}
+
+header{
+  background:rgba(17,22,32,.92);border-bottom:1px solid var(--border);
+  padding:0 28px;position:sticky;top:0;z-index:100;backdrop-filter:blur(12px);
+}
+.header-top{display:flex;align-items:center;justify-content:space-between;padding:12px 0 0}
+header h1{font-size:17px;font-weight:700;color:#fff;letter-spacing:-.3px}
+header h1 span{color:var(--blue);font-weight:400;margin-left:6px;font-size:14px}
+.header-meta{display:flex;align-items:center;gap:16px;font-size:12px;color:var(--text2)}
+.header-dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:4px}
+
+.space-nav{display:flex;gap:0;padding:8px 0 0;overflow-x:auto}
+.space-tab{
+  padding:7px 16px 9px;font-size:12px;font-weight:500;color:var(--text3);
+  border-bottom:2px solid transparent;cursor:pointer;white-space:nowrap;
+  transition:color .15s,border-color .15s;text-decoration:none;
+}
+.space-tab:hover{color:var(--text)}
+.space-tab.active{color:var(--blue);border-bottom-color:var(--blue);font-weight:600}
+.space-tab .tab-count{
+  font-size:10px;background:var(--bg3);color:var(--text3);
+  padding:1px 6px;border-radius:8px;margin-left:6px;font-weight:600;
+}
+.space-tab.active .tab-count{background:var(--blue-bg);color:var(--blue)}
+
+.page{padding:20px 28px 40px;width:100%}
+
+.top-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:20px}
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+.card-header{
+  padding:12px 16px 10px;border-bottom:1px solid var(--border);
+  display:flex;align-items:center;justify-content:space-between;
+}
+.card-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--text2)}
+.card-badge{font-size:10px;padding:2px 8px;border-radius:10px;font-weight:600}
+.card-body{padding:14px 16px}
+
+.overview-body{font-size:12px;color:var(--text2);line-height:1.7}
+.overview-body p{margin-bottom:8px}
+.overview-body strong{color:var(--text);font-weight:600}
+
+.protocol-rule{display:flex;align-items:flex-start;gap:8px;margin-bottom:6px;font-size:12px;color:var(--text2);line-height:1.7}
+.protocol-num{
+  min-width:18px;height:18px;border-radius:50%;background:var(--blue-bg);
+  color:var(--blue);font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;
+  flex-shrink:0;margin-top:1px;
+}
+.protocol-rule strong{color:var(--text)}
+
+.endpoint-row{display:flex;align-items:center;gap:8px;margin-bottom:5px;font-size:12px}
+.endpoint-method{
+  padding:1px 6px;border-radius:3px;font-size:10px;font-weight:700;font-family:monospace;
+  min-width:36px;text-align:center;
+}
+.method-post{background:var(--green-bg);color:var(--green);border:1px solid rgba(63,185,80,.2)}
+.method-get{background:var(--blue-bg);color:var(--blue);border:1px solid rgba(77,158,255,.2)}
+.endpoint-path{font-family:"SF Mono",SFMono-Regular,Menlo,monospace;color:var(--text2);font-size:11px}
+
+.contracts-card .card-body{max-height:260px;overflow-y:auto}
+
+.orders-card{border-color:var(--yellow);border-width:1px}
+.orders-card .card-header{background:var(--yellow-bg);border-bottom-color:rgba(210,153,34,.2)}
+.orders-card .card-title{color:var(--yellow)}
+.order-item{
+  display:flex;align-items:flex-start;gap:10px;padding:8px 0;
+  border-bottom:1px solid var(--border);font-size:13px;
+}
+.order-item:last-child{border-bottom:none}
+.order-agent{
+  min-width:44px;font-weight:700;font-size:11px;padding:2px 0;
+  text-align:center;border-radius:4px;flex-shrink:0;
+}
+.order-text{color:var(--text2);line-height:1.5}
+
+.section-label{
+  font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;
+  color:var(--text3);margin:24px 0 10px;padding-bottom:6px;
+  border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;
+}
+.section-count{
+  font-size:10px;background:var(--bg3);color:var(--text2);
+  padding:1px 7px;border-radius:8px;font-weight:600;
+}
+
+.agent-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px;margin-top:4px}
+.agent-card{
+  background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);
+  overflow:hidden;transition:border-color .15s;
+}
+.agent-card:hover{border-color:var(--blue)}
+.agent-head{
+  padding:12px 16px 10px;display:flex;align-items:center;justify-content:space-between;
+  border-bottom:1px solid var(--border);
+}
+.agent-name{font-size:15px;font-weight:700;color:#fff;display:flex;align-items:center;gap:8px}
+.agent-status{
+  font-size:10px;padding:2px 8px;border-radius:10px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;
+}
+.status-active{background:var(--green-bg);color:var(--green);border:1px solid rgba(63,185,80,.25)}
+.status-blocked{background:var(--red-bg);color:var(--red);border:1px solid rgba(248,81,73,.25)}
+.status-done{background:var(--blue-bg);color:var(--blue);border:1px solid rgba(77,158,255,.25)}
+.status-idle{background:rgba(92,101,120,.15);color:var(--text3);border:1px solid rgba(92,101,120,.2)}
+.status-error{background:var(--red-bg);color:var(--red);border:1px solid rgba(248,81,73,.25)}
+
+.agent-summary{
+  padding:10px 16px;font-size:13px;font-weight:500;color:var(--text);
+  background:var(--bg3);border-bottom:1px solid var(--border);line-height:1.5;
+}
+.agent-body{padding:12px 16px 14px}
+.agent-phase{
+  display:inline-block;font-size:10px;font-weight:600;text-transform:uppercase;
+  letter-spacing:.5px;padding:2px 8px;border-radius:4px;
+  background:var(--purple-bg);color:var(--purple);border:1px solid rgba(163,113,247,.2);
+  margin-bottom:8px;
+}
+.agent-items{list-style:none;padding:0}
+.agent-items li{
+  font-size:12px;color:var(--text2);padding:3px 0;padding-left:14px;
+  position:relative;line-height:1.5;
+}
+.agent-items li::before{
+  content:"";position:absolute;left:0;top:10px;
+  width:5px;height:5px;border-radius:50%;background:var(--border2);
+}
+.agent-next{
+  margin-top:10px;padding:8px 12px;background:var(--bg);border-radius:var(--radius-sm);
+  font-size:11px;color:var(--text2);border:1px solid var(--border);line-height:1.5;
+}
+.agent-next strong{color:var(--cyan);font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.4px}
+.agent-updated{font-size:10px;color:var(--text3);margin-top:8px;text-align:right}
+
+.boss-q{
+  background:var(--yellow-bg);border:1px solid rgba(210,153,34,.2);
+  border-radius:var(--radius-sm);padding:8px 12px;margin-top:8px;font-size:12px;
+  color:var(--yellow);line-height:1.5;
+}
+.boss-q::before{content:"? BOSS";font-weight:700;font-size:10px;letter-spacing:.5px;display:block;margin-bottom:2px;opacity:.7}
+
+.bug-item{
+  background:var(--red-bg);border:1px solid rgba(248,81,73,.15);border-radius:var(--radius-sm);
+  padding:8px 12px;margin-bottom:6px;
+}
+.bug-title{font-size:12px;font-weight:700;color:var(--red)}
+.bug-loc{font-size:10px;font-family:monospace;color:var(--text3);margin-top:2px}
+.bug-desc{font-size:11px;color:var(--text2);margin-top:2px;line-height:1.5}
+
+.merge-plan{background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px;margin-top:8px}
+.merge-plan h4{font-size:11px;font-weight:700;color:var(--orange);margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px}
+.merge-row{display:grid;grid-template-columns:50px 1fr 60px;gap:8px;padding:4px 0;font-size:11px;border-bottom:1px solid var(--border)}
+.merge-row:last-child{border-bottom:none}
+.merge-pr{font-weight:700;color:var(--blue)}
+.merge-desc{color:var(--text2)}
+.merge-files{color:var(--text3);text-align:right}
+.dep-graph{
+  font-family:"SF Mono",SFMono-Regular,Menlo,monospace;font-size:11px;
+  color:var(--text3);line-height:1.8;padding:8px 12px;background:var(--bg);
+  border-radius:var(--radius-sm);margin:8px 0;white-space:pre;
+}
+
+.archive-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:0;margin-top:20px}
+.archive-header{
+  padding:12px 16px;border-bottom:1px solid var(--border);
+  display:flex;align-items:center;justify-content:space-between;cursor:pointer;
+}
+.archive-header:hover{background:var(--bg3)}
+.archive-body{padding:16px;display:none;font-size:12px;color:var(--text2);line-height:1.7}
+.archive-body.open{display:block}
+
+.empty-state{text-align:center;padding:80px 28px;color:var(--text3)}
+.empty-state h2{color:var(--text2);font-size:18px;margin-bottom:8px}
+.empty-state p{font-size:13px;max-width:420px;margin:0 auto}
+</style>
+</head>
+<body>
+<header>
+  <div class="header-top">
+    <h1>Mission Control</h1>
+    <div class="header-meta">
+      <span id="agent-count"></span>
+      <span id="last-update"></span>
+    </div>
+  </div>
+  <nav class="space-nav" id="space-nav"></nav>
+</header>
+
+<div class="page" id="page">
+  <div style="text-align:center;padding:80px 0;color:var(--text3)">Loading...</div>
+</div>
+
+<script>
+var SPACE = null;
+var evtSource = null;
+
+(function(){
+  var pathMatch = window.location.pathname.match(/^\/spaces\/([^\/]+)/);
+  SPACE = pathMatch ? decodeURIComponent(pathMatch[1]) : null;
+
+  loadSpaceNav();
+})();
+
+function loadSpaceNav(){
+  fetch('/spaces')
+    .then(function(r){ return r.json(); })
+    .then(function(spaces){
+      spaces.sort(function(a,b){ return a.name.localeCompare(b.name); });
+
+      var nav = document.getElementById('space-nav');
+      var h = '';
+      spaces.forEach(function(s){
+        var cls = (s.name === SPACE) ? 'space-tab active' : 'space-tab';
+        h += '<a class="' + cls + '" href="/spaces/' + encodeURIComponent(s.name) + '/">';
+        h += esc(s.name);
+        h += '<span class="tab-count">' + s.agent_count + '</span>';
+        h += '</a>';
+      });
+      nav.innerHTML = h;
+
+      if (SPACE) {
+        loadSpace(SPACE);
+      } else {
+        renderSpaceList(spaces);
+      }
+    });
+}
+
+function renderSpaceList(spaces){
+  document.title = 'Mission Control';
+  var o = '';
+  if (spaces.length === 0){
+    o += '<div class="empty-state"><h2>No spaces yet</h2>';
+    o += '<p>POST to /spaces/{name}/agent/{agent} to create one.</p></div>';
+  } else {
+    o += '<div class="section-label">Spaces<span class="section-count">' + spaces.length + '</span></div>';
+    o += '<div class="agent-grid">';
+    spaces.forEach(function(s){
+      o += '<a href="/spaces/' + encodeURIComponent(s.name) + '/" style="text-decoration:none">';
+      o += '<div class="agent-card">';
+      o += '<div class="agent-head">';
+      o += '<span class="agent-name">' + esc(s.name) + '</span>';
+      o += '<span class="agent-status status-active">' + s.agent_count + ' agents</span>';
+      o += '</div>';
+      o += '<div class="agent-summary">Updated ' + new Date(s.updated_at).toLocaleString() + '</div>';
+      o += '</div></a>';
+    });
+    o += '</div>';
+  }
+  document.getElementById('page').innerHTML = o;
+  document.getElementById('agent-count').innerHTML = '';
+  document.getElementById('last-update').textContent = '';
+}
+
+function loadSpace(name){
+  document.title = 'Mission Control — ' + name;
+
+  fetch('/spaces/' + encodeURIComponent(name) + '/', {headers:{'Accept':'application/json'}, cache:'no-store'})
+    .then(function(r){
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    })
+    .then(render)
+    .catch(function(e){
+      document.getElementById('page').innerHTML =
+        '<div style="text-align:center;padding:80px 0;color:var(--red)">Failed to load ' + esc(name) + ': ' + esc(e.message) + '</div>';
+    });
+
+  if (evtSource) evtSource.close();
+  evtSource = new EventSource('/spaces/' + encodeURIComponent(name) + '/events');
+  evtSource.addEventListener('agent_updated', function(){ loadSpace(SPACE); });
+  evtSource.addEventListener('agent_removed', function(){ loadSpace(SPACE); });
+}
+
+function timeAgo(iso){
+  var d = new Date(iso), s = Math.floor((Date.now() - d) / 1000);
+  if (s < 60) return s + 's ago';
+  if (s < 3600) return Math.floor(s / 60) + 'm ago';
+  if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+  return Math.floor(s / 86400) + 'd ago';
+}
+
+function esc(s){
+  if (!s) return '';
+  var d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function extractBossQuestions(a){
+  var qs = [];
+  var all = (a.summary||'') + ' ' + (a.free_text||'') + ' ' + (a.next_steps||'');
+  (a.items||[]).forEach(function(it){ all += ' ' + it; });
+  if (a.questions) qs = qs.concat(a.questions);
+  var re = /\[\?BOSS\][^\n]*/g, m;
+  while ((m = re.exec(all)) !== null){
+    var q = m[0].replace(/^\[\?BOSS\]\s*/, '');
+    if (qs.indexOf(q) === -1) qs.push(q);
+  }
+  return qs;
+}
+
+function render(data){
+  var agents = data.agents || {};
+  var names = Object.keys(agents).sort();
+
+  var overlord = agents['Overlord'] || agents['overlord'] || null;
+  var o = '';
+
+  o += '<div class="top-row">';
+
+  o += '<div class="card">';
+  o += '<div class="card-header"><span class="card-title">Project Overview</span></div>';
+  o += '<div class="card-body overview-body">';
+  o += '<p><strong>' + esc(data.name) + '</strong> &mdash; ' + names.length + ' agents coordinating via shared blackboard.</p>';
+  if (data.shared_contracts){
+    var scLines = data.shared_contracts.split('\n');
+    var purpose = '';
+    for (var i = 0; i < scLines.length && i < 5; i++){
+      if (scLines[i].indexOf('Space:') > -1){ purpose = scLines[i].replace(/.*Space:\s*/, '').trim(); break; }
+    }
+  }
+  o += '</div></div>';
+
+  o += '<div class="card contracts-card">';
+  o += '<div class="card-header"><span class="card-title">Communication Protocol</span></div>';
+  o += '<div class="card-body">';
+  var baseUrl = window.location.protocol + '//' + window.location.host;
+  o += '<div class="endpoint-row"><span class="endpoint-method method-post">POST</span><span class="endpoint-path">' + baseUrl + '/spaces/' + esc(data.name) + '/agent/{name}</span></div>';
+  o += '<div class="endpoint-row"><span class="endpoint-method method-get">GET</span><span class="endpoint-path">' + baseUrl + '/spaces/' + esc(data.name) + '/raw</span></div>';
+  o += '<div class="endpoint-row"><span class="endpoint-method method-get">GET</span><span class="endpoint-path">' + baseUrl + '/spaces/' + esc(data.name) + '/agent/{name}</span></div>';
+  o += '<div class="endpoint-row" style="margin-top:4px;padding-top:4px;border-top:1px solid var(--border)"><span class="endpoint-method" style="background:var(--purple-bg);color:var(--purple);border:1px solid rgba(163,113,247,.2)">UI</span><span class="endpoint-path">' + baseUrl + '/spaces/' + encodeURIComponent(data.name) + '/</span></div>';
+  o += '<div style="margin-top:10px">';
+  o += '<div class="protocol-rule"><span class="protocol-num">1</span><span><strong>Read before write.</strong> GET /raw first.</span></div>';
+  o += '<div class="protocol-rule"><span class="protocol-num">2</span><span><strong>Own endpoint only.</strong> POST to your agent name.</span></div>';
+  o += '<div class="protocol-rule"><span class="protocol-num">3</span><span><strong>Tag questions</strong> with <code style="color:var(--yellow)">[?BOSS]</code></span></div>';
+  o += '<div class="protocol-rule"><span class="protocol-num">4</span><span><strong>Concise summaries.</strong> "{name}: {summary}"</span></div>';
+  o += '</div></div></div>';
+
+  o += '<div class="card orders-card">';
+  o += '<div class="card-header"><span class="card-title">Active Orders</span>';
+  if (overlord) o += '<span class="card-badge" style="background:var(--yellow-bg);color:var(--yellow)">' + esc(overlord.phase || '') + '</span>';
+  o += '</div>';
+  o += '<div class="card-body">';
+  if (overlord && overlord.sections && overlord.sections.length > 0){
+    overlord.sections.forEach(function(sec){
+      (sec.items || []).forEach(function(it){
+        var parts = it.split(':');
+        var tag = parts[0].trim();
+        var rest = parts.slice(1).join(':').trim();
+        var color = 'var(--text3)';
+        if (tag === 'API') color = 'var(--blue)';
+        else if (tag === 'BE') color = 'var(--green)';
+        else if (tag === 'TRex') color = 'var(--orange)';
+        o += '<div class="order-item">';
+        o += '<span class="order-agent" style="background:rgba(255,255,255,.04);color:' + color + '">' + esc(tag) + '</span>';
+        o += '<span class="order-text">' + esc(rest) + '</span>';
+        o += '</div>';
+      });
+    });
+  } else if (overlord && overlord.items){
+    overlord.items.forEach(function(it){
+      o += '<div class="order-item"><span class="order-text">' + esc(it) + '</span></div>';
+    });
+  } else {
+    o += '<div style="color:var(--text3);font-size:12px;font-style:italic">No active orders</div>';
+  }
+  o += '</div></div>';
+  o += '</div>';
+
+  var roleOrder = ['Overlord','API','BE','FE','CP','Cluster','SDK','Trex','Helper'];
+  var sorted = roleOrder.filter(function(n){ return agents[n]; });
+  names.forEach(function(n){ if (sorted.indexOf(n) === -1) sorted.push(n); });
+
+  o += '<div class="section-label">Agents<span class="section-count">' + names.length + '</span></div>';
+  o += '<div class="agent-grid">';
+
+  sorted.forEach(function(name){
+    var a = agents[name];
+    var bossQs = extractBossQuestions(a);
+
+    o += '<div class="agent-card">';
+    o += '<div class="agent-head">';
+    o += '<span class="agent-name">' + esc(name) + '</span>';
+    o += '<span class="agent-status status-' + (a.status || 'idle') + '">' + (a.status || 'idle') + '</span>';
+    o += '</div>';
+
+    var summary = (a.summary || '').replace(/^\[?\w+\]?\s*\d{4}-\d{2}-\d{2}\s*[—–\-]*\s*/, '').replace(/^\*\*/, '').replace(/\*\*$/, '');
+    o += '<div class="agent-summary">' + esc(summary) + '</div>';
+    o += '<div class="agent-body">';
+
+    if (a.phase) o += '<span class="agent-phase">' + esc(a.phase) + '</span>';
+
+    if (a.free_text && a.free_text.indexOf('### BUG') > -1){
+      o += renderBugs(a);
+    } else if (a.free_text && a.free_text.indexOf('PR Sequence') > -1){
+      o += renderMergePlan(a);
+    } else if (a.items && a.items.length > 0){
+      o += '<ul class="agent-items">';
+      a.items.forEach(function(it){ o += '<li>' + esc(it) + '</li>'; });
+      o += '</ul>';
+    }
+
+    if (a.next_steps) o += '<div class="agent-next"><strong>Next </strong>' + esc(a.next_steps) + '</div>';
+
+    bossQs.forEach(function(q){ o += '<div class="boss-q">' + esc(q) + '</div>'; });
+
+    if (a.updated_at) o += '<div class="agent-updated">' + timeAgo(a.updated_at) + '</div>';
+
+    o += '</div></div>';
+  });
+
+  o += '</div>';
+
+  if (data.archive){
+    o += '<div class="archive-card">';
+    o += '<div class="archive-header" onclick="this.nextElementSibling.classList.toggle(\'open\')">';
+    o += '<span class="card-title">Archive &mdash; Completed Phases</span>';
+    o += '<span style="color:var(--text3);font-size:12px">&#x25BC;</span>';
+    o += '</div>';
+    o += '<div class="archive-body">';
+    o += esc(data.archive).replace(/\n/g, '<br>');
+    o += '</div></div>';
+  }
+
+  document.getElementById('page').innerHTML = o;
+
+  var dot = '<span class="header-dot" style="background:var(--green)"></span>';
+  document.getElementById('agent-count').innerHTML = dot + names.length + ' agents';
+  document.getElementById('last-update').textContent = 'Updated ' + new Date(data.updated_at).toLocaleString();
+}
+
+function renderBugs(a){
+  var lines = a.free_text.split('\n');
+  var bugs = [], cur = null;
+  var BT = String.fromCharCode(96);
+  var btRe = new RegExp(BT, 'g');
+  for (var i = 0; i < lines.length; i++){
+    var ln = lines[i];
+    if (ln.indexOf('### BUG') === 0){
+      if (cur) bugs.push(cur);
+      cur = {title: ln.replace(/^###\s*/, ''), loc: '', desc: ''};
+    } else if (cur && !cur.loc && ln.charCodeAt(0) === 96){
+      var di = ln.search(/\s[-\u2014\u2013]\s/);
+      if (di > 0){ cur.loc = ln.substring(0, di).replace(btRe, ''); cur.desc = ln.substring(di + 3); }
+      else { cur.loc = ln.replace(btRe, ''); }
+    }
+  }
+  if (cur) bugs.push(cur);
+
+  var h = '';
+  if (bugs.length > 0){
+    bugs.forEach(function(b){
+      h += '<div class="bug-item">';
+      h += '<div class="bug-title">' + esc(b.title) + '</div>';
+      if (b.loc) h += '<div class="bug-loc">' + esc(b.loc) + '</div>';
+      if (b.desc) h += '<div class="bug-desc">' + esc(b.desc) + '</div>';
+      h += '</div>';
+    });
+  } else if (a.items && a.items.length > 0){
+    h += '<ul class="agent-items">';
+    a.items.forEach(function(it){ h += '<li>' + esc(it) + '</li>'; });
+    h += '</ul>';
+  }
+  return h;
+}
+
+function renderMergePlan(a){
+  var prRe = /\|\s*\*\*PR (\d+)\*\*\s*\|[^|]*\|[^|]*\|\s*~?(\d+)\s*\|[^|]*\|\s*([^|]+)\|/g;
+  var m, prs = [];
+  while ((m = prRe.exec(a.free_text)) !== null){
+    prs.push({num: m[1], files: m[2], desc: m[3].trim()});
+  }
+
+  var h = '';
+  if (prs.length > 0){
+    h += '<div class="merge-plan">';
+    h += '<h4>Merge Plan: ' + prs.length + '-PR Dependency Chain</h4>';
+    h += '<div class="dep-graph">PR 1 (rh-trex-ai)\n  \u2514\u2192 PR 2 (api-server)\n       \u251c\u2192 PR 3 (sdk) \u2192 PR 4 (frontend)\n       \u2514\u2192 PR 5 (control-plane)</div>';
+    prs.forEach(function(pr){
+      h += '<div class="merge-row">';
+      h += '<span class="merge-pr">PR ' + esc(pr.num) + '</span>';
+      h += '<span class="merge-desc">' + esc(pr.desc) + '</span>';
+      h += '<span class="merge-files">~' + esc(pr.files) + ' files</span>';
+      h += '</div>';
+    });
+    h += '</div>';
+  }
+  return h;
+}
+</script>
+</body>
+</html>
