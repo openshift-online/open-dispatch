@@ -383,6 +383,43 @@ header h1 span{color:var(--blue);font-weight:400;margin-left:6px;font-size:14px}
 }
 .btn-approve-dismiss:hover{background:var(--bg4);color:var(--text)}
 
+.btn-delete-agent{
+  background:rgba(248,81,73,.06);border:1px solid rgba(248,81,73,.2);color:var(--red);
+  width:18px;height:18px;border-radius:3px;cursor:pointer;font-size:11px;
+  display:inline-flex;align-items:center;justify-content:center;padding:0;
+  transition:all .15s;line-height:1;margin-left:4px;
+}
+.btn-delete-agent:hover{background:rgba(248,81,73,.12);border-color:var(--red)}
+.btn-delete-agent:disabled{opacity:.4;cursor:not-allowed}
+
+.btn-delete-workspace{
+  background:rgba(248,81,73,.06);border:1px solid rgba(248,81,73,.3);color:var(--red);
+  padding:5px 12px;border-radius:var(--radius-sm);font-size:12px;font-weight:600;
+  cursor:pointer;transition:all .15s;display:inline-flex;align-items:center;gap:4px;
+}
+.btn-delete-workspace:hover{background:rgba(248,81,73,.15);border-color:var(--red)}
+.btn-delete-workspace:disabled{opacity:.4;cursor:not-allowed}
+
+.confirm-dialog{
+  position:fixed;z-index:300;background:var(--bg2);border:1px solid var(--red);
+  border-radius:var(--radius);padding:0;width:450px;max-width:90vw;
+  box-shadow:0 8px 32px rgba(0,0,0,.6);pointer-events:auto;
+  top:50%;left:50%;transform:translate(-50%,-50%);
+}
+.confirm-dialog-header{
+  padding:12px 16px;border-bottom:1px solid var(--border);
+  display:flex;align-items:center;justify-content:space-between;
+  background:rgba(248,81,73,.06);
+}
+.confirm-dialog-title{font-size:14px;font-weight:700;color:var(--red)}
+.confirm-dialog-body{
+  padding:16px;font-size:13px;color:var(--text2);line-height:1.5;
+}
+.confirm-dialog-footer{
+  padding:12px 16px;border-top:1px solid var(--border);
+  display:flex;align-items:center;justify-content:flex-end;gap:8px;
+}
+
 .overview-table tr.is-done td{opacity:.45}
 .overview-table tr.is-done:hover td{opacity:.7}
 .agent-card.is-done{opacity:.5;border-color:var(--border)}
@@ -392,7 +429,7 @@ header h1 span{color:var(--blue);font-weight:400;margin-left:6px;font-size:14px}
 <body>
 <header>
   <div class="header-top">
-    <h1>Mission Control</h1>
+    <h1><a href="/" style="color:inherit;text-decoration:none">Mission Control</a></h1>
     <div class="header-meta">
       <span id="agent-count"></span>
       <span id="last-update"></span>
@@ -648,7 +685,7 @@ function sendReply(agentName, qid, dismissSource, dismissIndex, dismissText){
   fetch('/spaces/' + encodeURIComponent(SPACE) + '/reply/' + encodeURIComponent(agentName), {
     method:'POST',
     headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({message: msg})
+    body:JSON.stringify({message: msg + '\n\nAfter processing this reply, please run `/boss.check` to update your status and remove resolved questions.'})
   }).then(function(r){
     if (!r.ok) return r.text().then(function(t){ throw new Error(t); });
     return r.json();
@@ -797,6 +834,154 @@ function confirmApproval(agentName){
   if (btn){ btn.disabled = true; btn.textContent = '...'; }
   approveAgent(agentName, null);
   setTimeout(dismissApprovalPopup, 500);
+}
+
+function confirmDeleteAgent(agentName){
+  showConfirmDialog(
+    'Delete Agent',
+    'Are you sure you want to delete agent "' + agentName + '"? This action cannot be undone.',
+    'Delete Agent',
+    function(){ deleteAgent(agentName); }
+  );
+}
+
+function confirmDeleteWorkspace(){
+  showConfirmDialog(
+    'Delete Workspace',
+    'Are you sure you want to delete the entire "' + SPACE + '" workspace? This will remove all agents and data. This action cannot be undone.',
+    'Delete Workspace',
+    function(){ deleteWorkspace(); }
+  );
+}
+
+function confirmDeleteWorkspaceFromList(spaceName){
+  showConfirmDialog(
+    'Delete Workspace',
+    'Are you sure you want to delete the entire "' + spaceName + '" workspace? This will remove all agents and data. This action cannot be undone.',
+    'Delete Workspace',
+    function(){ deleteWorkspaceFromList(spaceName); }
+  );
+}
+
+function showConfirmDialog(title, message, confirmText, confirmAction){
+  dismissConfirmDialog();
+  var dialog = document.createElement('div');
+  dialog.className = 'confirm-dialog';
+  dialog.id = 'confirm-dialog';
+  dialog.innerHTML = '<div class="confirm-dialog-header">'
+    + '<span class="confirm-dialog-title">' + esc(title) + '</span>'
+    + '</div>'
+    + '<div class="confirm-dialog-body">' + esc(message) + '</div>'
+    + '<div class="confirm-dialog-footer">'
+    + '<button class="btn-approve-dismiss" onclick="dismissConfirmDialog()">Cancel</button>'
+    + '<button class="btn-approve-confirm" id="confirm-action-btn">' + esc(confirmText) + '</button>'
+    + '</div>';
+  document.body.appendChild(dialog);
+  document.getElementById('confirm-action-btn').onclick = function(){
+    confirmAction();
+    dismissConfirmDialog();
+  };
+  setTimeout(function(){ document.addEventListener('click', dismissConfirmOnOutsideClick); }, 0);
+}
+
+function dismissConfirmDialog(){
+  var el = document.getElementById('confirm-dialog');
+  if (el) el.remove();
+  document.removeEventListener('click', dismissConfirmOnOutsideClick);
+}
+
+function dismissConfirmOnOutsideClick(e){
+  var dialog = document.getElementById('confirm-dialog');
+  if (dialog && !dialog.contains(e.target)) dismissConfirmDialog();
+}
+
+function deleteAgent(agentName){
+  broadcastLog.push({time: new Date().toLocaleTimeString(), cls:'log-info', msg:'Deleting agent ' + agentName + '...'});
+  renderBroadcastLog();
+  fetch('/spaces/' + encodeURIComponent(SPACE) + '/agent/' + encodeURIComponent(agentName), {
+    method: 'DELETE'
+  }).then(function(r){
+    if (!r.ok) return r.text().then(function(t){ throw new Error(t); });
+    return r.text();
+  }).then(function(data){
+    broadcastLog.push({time: new Date().toLocaleTimeString(), cls:'log-ok', msg:'Agent ' + agentName + ' deleted successfully'});
+    renderBroadcastLog();
+    // Refresh just the board sections instead of full reload
+    refreshBoardAfterDeletion();
+  }).catch(function(e){
+    broadcastLog.push({time: new Date().toLocaleTimeString(), cls:'log-err', msg:'Delete agent failed: ' + e.message});
+    renderBroadcastLog();
+  });
+}
+
+function deleteWorkspace(){
+  broadcastLog.push({time: new Date().toLocaleTimeString(), cls:'log-info', msg:'Deleting workspace ' + SPACE + '...'});
+  renderBroadcastLog();
+  fetch('/spaces/' + encodeURIComponent(SPACE), {
+    method: 'DELETE'
+  }).then(function(r){
+    if (!r.ok) return r.text().then(function(t){ throw new Error(t); });
+    return r.text();
+  }).then(function(data){
+    broadcastLog.push({time: new Date().toLocaleTimeString(), cls:'log-ok', msg:'Workspace ' + SPACE + ' deleted successfully'});
+    renderBroadcastLog();
+    // Redirect to space list after successful deletion
+    setTimeout(function(){ window.location.href = '/'; }, 1500);
+  }).catch(function(e){
+    broadcastLog.push({time: new Date().toLocaleTimeString(), cls:'log-err', msg:'Delete workspace failed: ' + e.message});
+    renderBroadcastLog();
+  });
+}
+
+function deleteWorkspaceFromList(spaceName){
+  // Create temporary broadcast log for this operation
+  var tempLog = [];
+  tempLog.push({time: new Date().toLocaleTimeString(), cls:'log-info', msg:'Deleting workspace ' + spaceName + '...'});
+  
+  fetch('/spaces/' + encodeURIComponent(spaceName), {
+    method: 'DELETE'
+  }).then(function(r){
+    if (!r.ok) return r.text().then(function(t){ throw new Error(t); });
+    return r.text();
+  }).then(function(data){
+    tempLog.push({time: new Date().toLocaleTimeString(), cls:'log-ok', msg:'Workspace ' + spaceName + ' deleted successfully'});
+    // Refresh the space list
+    loadSpaceNav();
+  }).catch(function(e){
+    tempLog.push({time: new Date().toLocaleTimeString(), cls:'log-err', msg:'Delete workspace failed: ' + e.message});
+    alert('Delete workspace failed: ' + e.message);
+  });
+}
+
+function refreshBoardAfterDeletion(){
+  if (!SPACE) return;
+  var base = '/spaces/' + encodeURIComponent(SPACE);
+  Promise.all([
+    fetch(base + '/', {headers:{'Accept':'application/json'}, cache:'no-store'}).then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }),
+    fetch(base + '/api/tmux-status').then(function(r){ return r.json(); }).catch(function(){ return []; })
+  ]).then(function(results){
+    var data = results[0];
+    var tmuxData = results[1];
+    tmuxCache = tmuxData;
+    cachedBoardData = data;
+    
+    var agents = data.agents || {};
+    var names = Object.keys(agents).sort();
+    var sorted = sortAgents(agents);
+    
+    // Update the overview and agents sections
+    renderPanelOverview(data, sorted, tmuxData);
+    renderPanelAgents(data, sorted, tmuxData);
+    
+    // Update header counts
+    var dot = '<span class="header-dot" style="background:var(--green)"></span>';
+    document.getElementById('agent-count').innerHTML = dot + names.length + ' agents';
+    document.getElementById('last-update').textContent = 'Updated ' + new Date(data.updated_at).toLocaleString();
+  }).catch(function(e){
+    console.error('Failed to refresh board after deletion:', e);
+    // Fallback to full reload if refresh fails
+    loadSpace(SPACE);
+  });
 }
 
 function updateApprovalUI(tmuxData){
@@ -1028,7 +1213,7 @@ function renderPanelOverview(data, sorted, tmuxData){
   o += '<button class="btn btn-primary" id="broadcast-btn" onclick="triggerBroadcast()">Broadcast All</button>';
   o += '</div></div>';
   o += '<div class="card-body" style="padding:8px 12px">';
-  o += '<table class="overview-table"><thead><tr><th class="ov-poke"></th><th>Agent</th><th>Status</th><th>Branch</th><th>Session</th><th>PR</th></tr></thead><tbody>';
+  o += '<table class="overview-table"><thead><tr><th class="ov-poke"></th><th>Agent</th><th>Status</th><th>Branch</th><th>Session</th><th>PR</th><th>Jira</th></tr></thead><tbody>';
   sorted.forEach(function(name){
     var a = agents[name];
     var tmux = getTmuxStatus(name, tmuxData);
@@ -1064,6 +1249,9 @@ function renderPanelOverview(data, sorted, tmuxData){
     var prVal = a.pr || '\u2014';
     var prUrl = buildMergeRequestUrl(a.repo_url, a.pr);
     o += '<td class="ov-pr">' + (prUrl ? '<a href="' + esc(prUrl) + '" style="color:var(--blue);text-decoration:none" target="_blank">' + esc(prVal) + '</a>' : esc(prVal)) + '</td>';
+    var jiraVal = a.jira || '\u2014';
+    var jiraUrl = a.jira ? 'https://issues.redhat.com/browse/' + a.jira : null;
+    o += '<td class="ov-jira">' + (jiraUrl ? '<a href="' + esc(jiraUrl) + '" style="color:var(--purple);text-decoration:none" target="_blank">' + esc(jiraVal) + '</a>' : esc(jiraVal)) + '</td>';
     o += '</tr>';
   });
   o += '</tbody></table>';
@@ -1191,7 +1379,9 @@ function renderPanelAgents(data, sorted, tmuxData){
 
     o += '<div class="' + cardCls + '">';
     o += '<div class="agent-head">';
-    o += '<span class="agent-name">' + esc(name) + '</span>';
+    o += '<span class="agent-name">' + esc(name);
+    o += '<button class="btn-delete-agent" onclick="confirmDeleteAgent(\'' + esc(name).replace(/'/g,"\\'") + '\')" title="Delete ' + esc(name) + '">&times;</button>';
+    o += '</span>';
     o += '<div class="agent-badges">';
 
     var tmux = getTmuxStatus(name, tmuxData);

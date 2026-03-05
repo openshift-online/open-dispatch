@@ -112,6 +112,10 @@ func (s *Server) Start() error {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/", s.handleRoot)
+	mux.HandleFunc("/mc2", s.handleMC2)
+	// Static file server for CSS, JS, etc.
+	mux.Handle("/css/", http.StripPrefix("/", http.FileServer(http.Dir("static"))))
+	mux.Handle("/js/", http.StripPrefix("/", http.FileServer(http.Dir("static"))))
 	mux.HandleFunc("/spaces", s.handleListSpaces)
 	mux.HandleFunc("/spaces/", s.handleSpaceRoute)
 	mux.HandleFunc("/events", s.handleSSE)
@@ -294,8 +298,15 @@ func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprint(w, missionControlHTML)
+	s.serveHTMLFile(w, r, "mission-control.html")
+}
+
+func (s *Server) handleMC2(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/mc2" {
+		http.NotFound(w, r)
+		return
+	}
+	s.serveHTMLFile(w, r, "mission-control2.html")
 }
 
 func (s *Server) handleListSpaces(w http.ResponseWriter, r *http.Request) {
@@ -449,8 +460,7 @@ func (s *Server) handleSpaceView(w http.ResponseWriter, r *http.Request, spaceNa
 		s.handleSpaceJSON(w, r, spaceName)
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprint(w, missionControlHTML)
+	s.serveHTMLFile(w, r, "mission-control.html")
 }
 
 func (s *Server) handleSpaceJSON(w http.ResponseWriter, r *http.Request, spaceName string) {
@@ -1549,4 +1559,20 @@ func truncateLine(s string, maxLen int) string {
 		return line[:maxLen-3] + "..."
 	}
 	return line
+}
+
+// serveHTMLFile serves an HTML file from the static directory
+func (s *Server) serveHTMLFile(w http.ResponseWriter, r *http.Request, filename string) {
+	filePath := filepath.Join("internal", "coordinator", "static", filename)
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			http.NotFound(w, r)
+		} else {
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		}
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Write(content)
 }
