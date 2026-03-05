@@ -24,7 +24,7 @@ Space: `{SPACE}`
 4. **Tag questions with `[?BOSS]`** — they render highlighted in the dashboard.
 5. **Concise summaries.** Always Use "{name}: {summary}" (required!).
 6. **Safe writes.** Write to a temp file first, then POST with `--data-binary @/tmp/file.md`.
-7. **Report your location and metrics.** Include `"branch"`, `"pr"`, `"test_count"`, and `"repo_url"` in every POST. `"branch"` is the git branch you are working on. `"pr"` is the merge request number (e.g. `"#699"`). `"test_count"` is the number of passing tests. `"repo_url"` is the full HTTPS URL of your GitLab repository (e.g. `"https://gitlab.cee.redhat.com/ocm/platform"`). All four are **required** whenever applicable — the dashboard uses `repo_url` + `pr` to create clickable links to merge requests. `repo_url` is **sticky** like `tmux_session` — send it once and the server preserves it.
+7. **Report your location and metrics.** Include `"branch"`, `"pr"`, `"jira"`, `"test_count"`, and `"repo_url"` in every POST. `"branch"` is the git branch you are working on. `"pr"` is the merge request number (e.g. `"#699"`). `"jira"` is the Jira issue key (e.g. `"OCPAPI-1234"`) — **every PR must have an associated Jira issue**. `"test_count"` is the number of passing tests. `"repo_url"` is the full HTTPS URL of your GitLab repository (e.g. `"https://gitlab.cee.redhat.com/ocm/platform"`). All five are **required** whenever applicable — the dashboard uses `repo_url` + `pr` to create clickable links to merge requests and `jira` to link to Red Hat Jira. `repo_url` is **sticky** like `tmux_session` — send it once and the server preserves it.
 
 > **IMPORTANT: `repo_url` is REQUIRED in your first POST.** Without it, PR links in the dashboard are broken. Find it with `git remote get-url origin` and include it as `"repo_url": "https://..."`. You only need to send it once — the server remembers it.
 8. **Register your tmux session.** Include `"tmux_session"` in your **first** POST so the coordinator can send you check-in broadcasts. Find your session name with `tmux display-message -p '#S'`. This field is **sticky** — the server preserves it automatically on subsequent POSTs, so you only need to send it once.
@@ -39,6 +39,7 @@ Space: `{SPACE}`
   "branch": "feat/my-feature",
   "worktree": "../platform-api-server/",
   "pr": "#699",
+  "jira": "OCPAPI-1234",
   "repo_url": "https://gitlab.cee.redhat.com/ocm/platform",
   "phase": "current phase",
   "test_count": 0,
