@@ -168,11 +168,27 @@ const hasQuestions = computed(() => (props.agent.questions?.length ?? 0) > 0)
 const hasBlockers = computed(() => (props.agent.blockers?.length ?? 0) > 0)
 const hasSections = computed(() => (props.agent.sections?.length ?? 0) > 0)
 const hasItems = computed(() => (props.agent.items?.length ?? 0) > 0)
+
+const statusAccentClass = computed(() => {
+  switch (props.agent.status) {
+    case 'active': return 'border-t-green-500'
+    case 'done': return 'border-t-sky-500'
+    case 'blocked': return 'border-t-orange-500'
+    case 'error': return 'border-t-red-500'
+    case 'idle': return 'border-t-slate-400'
+    default: return 'border-t-border'
+  }
+})
+
+const attentionSectionClass = computed(() => {
+  if (hasBlockers.value && !hasQuestions.value) return 'bg-red-500/5 border-red-500/20'
+  return 'bg-amber-500/5 border-amber-500/20'
+})
 </script>
 
 <template>
   <ScrollArea class="h-full">
-    <div class="p-6 space-y-6 max-w-4xl">
+    <div class="p-6 space-y-6 max-w-4xl border-t-[3px]" :class="statusAccentClass">
       <!-- Header -->
       <div class="flex items-start justify-between gap-4 flex-wrap">
         <div class="space-y-1">
@@ -180,6 +196,15 @@ const hasItems = computed(() => (props.agent.items?.length ?? 0) > 0)
             <AgentAvatar :name="agentName" :size="36" />
             <h1 class="text-2xl font-semibold tracking-tight">{{ agentName }}</h1>
             <StatusBadge :status="agent.status" />
+            <Tooltip v-if="agent.test_count != null">
+              <TooltipTrigger as-child>
+                <div class="flex items-center gap-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 px-2.5 py-0.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400 tabular-nums cursor-default">
+                  <span class="inline-block size-1.5 rounded-full bg-emerald-500 shrink-0"></span>
+                  {{ agent.test_count }} tests
+                </div>
+              </TooltipTrigger>
+              <TooltipContent>{{ agent.test_count }} passing tests reported</TooltipContent>
+            </Tooltip>
           </div>
           <div class="flex items-center gap-3 text-sm text-muted-foreground font-text flex-wrap">
             <span v-if="agent.phase" :title="`Current phase: ${agent.phase}`">Phase: {{ agent.phase }}</span>
@@ -242,7 +267,12 @@ const hasItems = computed(() => (props.agent.items?.length ?? 0) > 0)
       <Separator />
 
       <!-- Questions & Blockers — Actionable Inbox (elevated: shown first when present) -->
-      <section v-if="hasQuestions || hasBlockers" class="space-y-4" aria-label="Questions and blockers">
+      <section
+        v-if="hasQuestions || hasBlockers"
+        class="space-y-4 rounded-xl border p-4"
+        :class="attentionSectionClass"
+        aria-label="Questions and blockers"
+      >
         <div class="flex items-center gap-2">
           <h2 class="text-sm font-semibold text-foreground">Needs Your Attention</h2>
           <Badge variant="destructive" class="h-5 min-w-5 px-1.5 text-[10px] font-semibold tabular-nums">
@@ -357,26 +387,31 @@ const hasItems = computed(() => (props.agent.items?.length ?? 0) > 0)
         <p class="font-text leading-relaxed">{{ agent.summary }}</p>
       </section>
 
-      <!-- Test count -->
-      <div v-if="agent.test_count != null" class="text-sm font-text text-muted-foreground">
-        Tests: <span class="font-mono">{{ agent.test_count }}</span>
-      </div>
+      <Separator v-if="agent.summary && (hasItems || hasSections || agent.next_steps)" class="opacity-50" />
 
       <!-- Items -->
       <section v-if="hasItems" aria-label="Work items">
         <h2 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Items</h2>
-        <ul class="list-disc list-inside space-y-1 font-text text-sm">
-          <li v-for="(item, i) in agent.items" :key="i">{{ item }}</li>
-        </ul>
+        <ol class="space-y-1.5 font-text text-sm">
+          <li v-for="(item, i) in agent.items" :key="i" class="flex items-start gap-2.5">
+            <span class="shrink-0 mt-0.5 min-w-[1.25rem] text-right text-xs font-mono font-semibold text-muted-foreground/70 select-none">{{ i + 1 }}.</span>
+            <span class="leading-relaxed">{{ item }}</span>
+          </li>
+        </ol>
       </section>
+
+      <Separator v-if="hasItems && (hasSections || agent.next_steps)" class="opacity-50" />
 
       <!-- Sections -->
       <div v-if="hasSections" class="space-y-4">
         <section v-for="(section, si) in agent.sections" :key="si" :aria-label="section.title">
           <h3 class="text-sm font-semibold mb-2">{{ section.title }}</h3>
-          <ul v-if="section.items?.length" class="list-disc list-inside space-y-1 font-text text-sm mb-2">
-            <li v-for="(item, ii) in section.items" :key="ii">{{ item }}</li>
-          </ul>
+          <ol v-if="section.items?.length" class="space-y-1.5 font-text text-sm mb-2">
+            <li v-for="(item, ii) in section.items" :key="ii" class="flex items-start gap-2.5">
+              <span class="shrink-0 mt-0.5 min-w-[1.25rem] text-right text-xs font-mono font-semibold text-muted-foreground/70 select-none">{{ ii + 1 }}.</span>
+              <span class="leading-relaxed">{{ item }}</span>
+            </li>
+          </ol>
           <!-- Table -->
           <div v-if="section.table" class="overflow-x-auto rounded border">
             <table class="w-full text-sm font-text" :aria-label="`${section.title} table`">
@@ -439,6 +474,8 @@ const hasItems = computed(() => (props.agent.items?.length ?? 0) > 0)
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Separator v-if="hasSections && agent.next_steps" class="opacity-50" />
 
       <!-- Next Steps -->
       <section v-if="agent.next_steps" aria-label="Next steps">
