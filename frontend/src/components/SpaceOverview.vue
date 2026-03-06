@@ -21,6 +21,7 @@ import {
 import { Radio, Bell, Trash2, MessageSquare, SendHorizontal, HelpCircle, AlertTriangle, MessageSquareReply } from 'lucide-vue-next'
 import StatusBadge from './StatusBadge.vue'
 import InterruptTracker from './InterruptTracker.vue'
+import AgentAvatar from './AgentAvatar.vue'
 
 const props = defineProps<{
   space: KnowledgeSpace
@@ -233,7 +234,10 @@ const inboxPending = computed(() => inboxRef.value?.pendingCount ?? attentionCou
 
               <CardHeader class="pb-2">
                 <div class="flex items-center justify-between gap-2">
-                  <CardTitle class="text-base truncate">{{ name }}</CardTitle>
+                  <div class="flex items-center gap-2 min-w-0">
+                    <AgentAvatar :name="name" :size="28" />
+                    <CardTitle class="text-base truncate">{{ name }}</CardTitle>
+                  </div>
                   <div class="flex items-center gap-1.5">
                     <StatusBadge :status="agent.status" />
                     <Tooltip v-if="tmuxStatus?.[name]?.needs_approval">

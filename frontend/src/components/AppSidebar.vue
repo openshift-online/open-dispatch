@@ -21,6 +21,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Radio, AlertCircle } from 'lucide-vue-next'
+import AgentAvatar from './AgentAvatar.vue'
 
 const props = defineProps<{
   spaces: SpaceSummary[]
@@ -188,18 +189,21 @@ function statusTooltip(status: string): string {
                     :aria-label="`${name} — ${statusLabel(agent.status)}`"
                     @click="handleSelectAgent(name)"
                   >
-                    <Tooltip>
-                      <TooltipTrigger as-child>
-                        <span
-                          :class="['inline-block size-2 rounded-full shrink-0', statusDotClass(agent.status)]"
-                          :aria-label="statusLabel(agent.status)"
-                          role="img"
-                        />
-                      </TooltipTrigger>
-                      <TooltipContent side="right">
-                        {{ statusTooltip(agent.status) }}
-                      </TooltipContent>
-                    </Tooltip>
+                    <div class="relative shrink-0">
+                      <AgentAvatar :name="name" :size="20" />
+                      <Tooltip>
+                        <TooltipTrigger as-child>
+                          <span
+                            :class="['absolute -bottom-0.5 -right-0.5 block size-2 rounded-full ring-1 ring-sidebar', statusDotClass(agent.status)]"
+                            :aria-label="statusLabel(agent.status)"
+                            role="img"
+                          />
+                        </TooltipTrigger>
+                        <TooltipContent side="right">
+                          {{ statusTooltip(agent.status) }}
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
                     <div class="flex flex-col gap-0.5 min-w-0 flex-1">
                       <span class="truncate">{{ name }}</span>
                       <div v-if="agent.branch || agent.pr" class="flex items-center gap-1.5">

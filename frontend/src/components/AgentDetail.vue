@@ -25,6 +25,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { Bell, Trash2, ShieldCheck, Terminal, ChevronRight, X, HelpCircle, AlertTriangle, MessageSquareReply } from 'lucide-vue-next'
 import StatusBadge from './StatusBadge.vue'
 import AgentMessages from './AgentMessages.vue'
+import AgentAvatar from './AgentAvatar.vue'
 
 const props = defineProps<{
   agent: AgentUpdate
@@ -168,6 +169,7 @@ const hasItems = computed(() => (props.agent.items?.length ?? 0) > 0)
       <div class="flex items-start justify-between gap-4">
         <div class="space-y-1">
           <div class="flex items-center gap-3">
+            <AgentAvatar :name="agentName" :size="36" />
             <h1 class="text-2xl font-semibold tracking-tight">{{ agentName }}</h1>
             <StatusBadge :status="agent.status" />
           </div>

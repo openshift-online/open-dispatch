@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { SendHorizontal } from 'lucide-vue-next'
+import AgentAvatar from './AgentAvatar.vue'
 
 const props = defineProps<{
   messages: AgentMessage[]
@@ -38,10 +39,6 @@ function getSenderColor(sender: string): string {
     senderColors[sender] = colorPalette[idx]!
   }
   return senderColors[sender]!
-}
-
-function getSenderInitial(sender: string): string {
-  return sender.charAt(0).toUpperCase()
 }
 
 function formatTime(timestamp: string): string {
@@ -106,13 +103,7 @@ const sortedMessages = computed(() => {
           :aria-label="`Message from ${msg.sender} at ${formatTime(msg.timestamp)}`"
         >
           <div class="flex items-center gap-2 mb-1">
-            <span
-              class="flex items-center justify-center size-5 rounded-full bg-muted text-[10px] font-semibold text-muted-foreground"
-              :aria-label="msg.sender"
-              role="img"
-            >
-              {{ getSenderInitial(msg.sender) }}
-            </span>
+            <AgentAvatar :name="msg.sender" :size="20" />
             <span class="text-xs font-medium">{{ msg.sender }}</span>
             <Tooltip>
               <TooltipTrigger as-child>
