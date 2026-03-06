@@ -58,11 +58,13 @@ const emit = defineEmits<{
   'delete-agent': [name: string]
   'broadcast-agent': [name: string]
   'send-message-to-agent': [agentName: string, text: string]
+  'delete-space': []
 }>()
 
 const agentSearch = ref('')
 const deleteDialogOpen = ref(false)
 const deleteDialogAgent = ref<string | null>(null)
+const deleteSpaceDialogOpen = ref(false)
 const messageDialogOpen = ref(false)
 const messageDialogAgent = ref<string | null>(null)
 const messageText = ref('')
@@ -181,6 +183,8 @@ watch(
         setTimeout(() => {
           recentlyUpdated.value.delete(name)
         }, 2000)
+        // Refresh inbox when an agent updates — new questions/blockers may have arrived
+        inboxRef.value?.refresh()
       }
       lastSeenTimestamps.value[name] = agent.updated_at
     }
@@ -255,22 +259,40 @@ const activeSections = computed(() => [
             {{ headerSummary }}
           </p>
         </div>
-        <Tooltip>
-          <TooltipTrigger as-child>
-            <Button
-              variant="outline"
-              size="sm"
-              :disabled="agentCount === 0 || broadcasting"
-              @click="emit('broadcast')"
-            >
-              <Radio class="size-4" />
-              Nudge All ({{ agentCount }})
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>
-            Send a nudge to all {{ agentCount }} agent{{ agentCount !== 1 ? 's' : '' }} in this space
-          </TooltipContent>
-        </Tooltip>
+        <div class="flex items-center gap-2">
+          <Tooltip>
+            <TooltipTrigger as-child>
+              <Button
+                variant="outline"
+                size="sm"
+                :disabled="agentCount === 0 || broadcasting"
+                @click="emit('broadcast')"
+              >
+                <Radio class="size-4" />
+                Nudge All ({{ agentCount }})
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              Send a nudge to all {{ agentCount }} agent{{ agentCount !== 1 ? 's' : '' }} in this space
+            </TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger as-child>
+              <Button
+                variant="outline"
+                size="sm"
+                class="text-destructive border-destructive/30 hover:bg-destructive/10 hover:border-destructive"
+                @click="deleteSpaceDialogOpen = true"
+              >
+                <Trash2 class="size-4" />
+                Delete Space
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              Permanently delete this space and all its agent data
+            </TooltipContent>
+          </Tooltip>
+        </div>
       </div>
 
       <!-- Agent search bar -->
@@ -328,6 +350,7 @@ const activeSections = computed(() => [
                     v-for="[name, agent] in section.agents"
                     :key="name"
                     role="listitem"
+                    tabindex="0"
                     class="group cursor-pointer transition-all duration-150 hover:bg-accent/50 focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-2 relative flex flex-col !py-0 !gap-0 min-h-[180px]"
                     :class="[
                       agent.blockers?.length
@@ -337,7 +360,7 @@ const activeSections = computed(() => [
                           : '',
                       recentlyUpdated.has(name) ? 'ring-2 ring-primary/40 transition-shadow' : '',
                     ]"
-                    :aria-label="`Agent ${name}, status: ${agent.status}${agent.summary ? ', ' + agent.summary : ''}`"
+                    :aria-label="`Agent ${name}, status: ${agent.status}${agent.summary ? ', ' + agent.summary.slice(0, 80) + (agent.summary.length > 80 ? '…' : '') : ''}`"
                     @click="emit('select-agent', name)"
                     @keydown="handleCardKeydown($event, name)"
                   >
@@ -633,6 +656,28 @@ const activeSections = computed(() => [
           <InterruptTracker ref="inboxRef" :space-name="space.name" />
         </TabsContent>
       </Tabs>
+
+      <!-- Delete space confirmation dialog -->
+      <AlertDialog v-model:open="deleteSpaceDialogOpen">
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete space "{{ space.name }}"?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete the space and all its agent data. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              class="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              @click="emit('delete-space')"
+            >
+              <Trash2 class="size-4" />
+              Delete Space
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <!-- Delete agent confirmation dialog -->
       <AlertDialog v-model:open="deleteDialogOpen">

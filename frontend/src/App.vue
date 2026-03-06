@@ -765,6 +765,7 @@ onUnmounted(() => {
             @delete-agent="handleDeleteAgent"
             @broadcast-agent="handleBroadcastSingleAgent"
             @send-message-to-agent="handleSendMessageToAgent"
+            @delete-space="handleDeleteSpace(selectedSpace)"
           />
 
           <!-- Empty state -->
