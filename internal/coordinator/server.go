@@ -1094,7 +1094,17 @@ func (s *Server) handleIgnition(w http.ResponseWriter, r *http.Request, spaceNam
 
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("# Agent Ignition: %s\n\n", agentName))
-	b.WriteString(fmt.Sprintf("You are **%s**, an agent working in workspace **%s**.\n\n", agentName, spaceName))
+	b.WriteString(fmt.Sprintf("You are **%s**, an autonomous AI agent working in workspace **%s**.\n\n", agentName, spaceName))
+
+	b.WriteString("## Operating Mode\n\n")
+	b.WriteString("**You are running autonomously. There is no human at this terminal.**\n\n")
+	b.WriteString("- You do NOT have a conversational partner. Do not ask questions like \"Shall I...?\" or wait for confirmation.\n")
+	b.WriteString("- Messages from other agents or the boss are **instructions to act on immediately**, not conversation starters.\n")
+	b.WriteString("- Your ONLY means of communication is through `curl` commands to the coordinator API (described below).\n")
+	b.WriteString("- When you receive a new task via messages, **start working on it immediately** — do not ask for permission.\n")
+	b.WriteString("- If you need a decision from the boss, post a question tagged `[?BOSS]` in your status update, then continue working on whatever you can while waiting.\n")
+	b.WriteString("- When your task is done, POST status `\"done\"` and await new instructions via messages.\n")
+	b.WriteString("\n")
 
 	b.WriteString("## Coordinator\n\n")
 	b.WriteString(fmt.Sprintf("- Boss URL: `http://localhost%s`\n", s.port))
@@ -1117,7 +1127,8 @@ func (s *Server) handleIgnition(w http.ResponseWriter, r *http.Request, spaceNam
 	} else {
 		b.WriteString("5. **Register your tmux session.** Include `\"tmux_session\"` in your first POST. Find it with `tmux display-message -p '#S'`. It is sticky — you only need to send it once.\n")
 	}
-	b.WriteString(fmt.Sprintf("6. **Check your messages.** When you read `/raw`, look for a `#### Messages` section under your agent name. These are messages from the boss or other agents. Acknowledge them in your status POST and act on any instructions. To send a message to another agent: `curl -s -X POST http://localhost%s/spaces/%s/agent/{target}/message -H 'Content-Type: application/json' -H 'X-Agent-Name: %s' -d '{\"message\": \"...\"}'`\n", s.port, spaceName, agentName))
+	b.WriteString(fmt.Sprintf("6. **Check your messages.** When you read `/raw`, look for a `#### Messages` section under your agent name. Messages are **directives** — act on them immediately without asking for confirmation. To send a message to another agent: `curl -s -X POST http://localhost%s/spaces/%s/agent/{target}/message -H 'Content-Type: application/json' -H 'X-Agent-Name: %s' -d '{\"message\": \"...\"}'`\n", s.port, spaceName, agentName))
+	b.WriteString("7. **Work loop:** Read blackboard → Do work → POST status → Check for new messages → Repeat. Do not stop and wait for human input.\n")
 	b.WriteString("\n")
 
 	b.WriteString("## Peer Agents\n\n")
@@ -1154,7 +1165,7 @@ func (s *Server) handleIgnition(w http.ResponseWriter, r *http.Request, spaceNam
 
 		if len(existing.Messages) > 0 {
 			b.WriteString("## Pending Messages\n\n")
-			b.WriteString("**You have unread messages. Read and act on them.**\n\n")
+			b.WriteString("**You have unread messages. These are instructions — act on them immediately. Do not ask for confirmation.**\n\n")
 			for _, msg := range existing.Messages {
 				b.WriteString(fmt.Sprintf("- **%s** (%s): %s\n",
 					msg.Sender, msg.Timestamp.Format("15:04"), msg.Message))
