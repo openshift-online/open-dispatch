@@ -37,6 +37,7 @@ const currentSpace = ref<KnowledgeSpace | null>(null)
 const tmuxStatus = ref<Record<string, TmuxAgentStatus>>({})
 
 const loading = ref(true)
+const spaceLoading = ref(false)
 const errorMessage = ref<string | null>(null)
 const successMessage = ref<string | null>(null)
 const statusAnnouncement = ref('')
@@ -105,13 +106,16 @@ async function loadSpaces() {
   }
 }
 
-async function loadSpace(name: string) {
+async function loadSpace(name: string, showLoader = false) {
+  if (showLoader) spaceLoading.value = true
   try {
     currentSpace.value = await api.fetchSpace(name)
   } catch (err) {
     console.error(`Failed to load space ${name}:`, err)
     currentSpace.value = null
     showError(`Failed to load space "${name}".`)
+  } finally {
+    spaceLoading.value = false
   }
 }
 
@@ -150,7 +154,7 @@ watch(
   (space, oldSpace) => {
     if (space && space !== oldSpace) {
       currentSpace.value = null  // clear stale data immediately
-      loadSpace(space)
+      loadSpace(space, true)
       loadTmuxStatus(space)
       // Reconnect SSE to this space
       sse.disconnect()
@@ -524,7 +528,7 @@ onMounted(async () => {
 
   if (selectedSpace.value) {
     // Route already has a space — load its data and connect SSE
-    loadSpace(selectedSpace.value)
+    loadSpace(selectedSpace.value, true)
     loadTmuxStatus(selectedSpace.value)
     sse.connect(selectedSpace.value)
   } else if (spaces.value.length > 0) {
@@ -654,12 +658,20 @@ onUnmounted(() => {
 
         <!-- Main content -->
         <main class="flex-1 min-h-0 overflow-hidden" aria-label="Dashboard content">
-          <!-- Loading state -->
+          <!-- Initial load state -->
           <div v-if="loading" class="flex flex-col items-center justify-center h-full text-muted-foreground font-text gap-3">
             <div class="h-8 w-8 animate-spin rounded-full border-2 border-muted-foreground border-t-primary" role="status">
               <span class="sr-only">Loading...</span>
             </div>
             <p class="text-sm">Loading spaces...</p>
+          </div>
+
+          <!-- Space-switching loading state -->
+          <div v-else-if="spaceLoading" class="flex flex-col items-center justify-center h-full text-muted-foreground font-text gap-3">
+            <div class="h-8 w-8 animate-spin rounded-full border-2 border-muted-foreground border-t-primary" role="status">
+              <span class="sr-only">Loading space...</span>
+            </div>
+            <p class="text-sm">Loading {{ selectedSpace }}…</p>
           </div>
 
           <!-- Agent detail view -->
