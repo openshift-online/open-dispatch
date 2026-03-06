@@ -20,7 +20,7 @@ import {
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { Radio } from 'lucide-vue-next'
+import { Radio, AlertCircle } from 'lucide-vue-next'
 
 const props = defineProps<{
   spaces: SpaceSummary[]
@@ -61,6 +61,22 @@ const sortedAgents = computed(() => {
     return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
   })
 })
+
+// Count pending questions + blockers across all agents in the current space
+function spaceAttentionCount(space: SpaceSummary): number {
+  // We can only compute this for the selected space (we have full agent data)
+  if (space.name !== props.selectedSpace || !props.currentSpace) return 0
+  let count = 0
+  for (const agent of Object.values(props.currentSpace.agents)) {
+    count += (agent.questions?.length ?? 0) + (agent.blockers?.length ?? 0)
+  }
+  return count
+}
+
+// Count questions + blockers for a specific agent
+function agentAttentionCount(agent: { questions?: string[]; blockers?: string[] }): number {
+  return (agent.questions?.length ?? 0) + (agent.blockers?.length ?? 0)
+}
 
 function statusDotClass(status: string): string {
   switch (status) {
@@ -105,9 +121,27 @@ function statusTooltip(status: string): string {
                 :aria-current="space.name === selectedSpace ? 'true' : undefined"
                 @click="handleSelectSpace(space.name)"
               >
+                <AlertCircle
+                  v-if="spaceAttentionCount(space) > 0"
+                  class="size-3.5 text-amber-500 shrink-0"
+                  :aria-label="`${spaceAttentionCount(space)} items need attention`"
+                />
                 <span class="truncate">{{ space.name }}</span>
               </SidebarMenuButton>
-              <SidebarMenuBadge :title="`${space.agent_count} agent${space.agent_count !== 1 ? 's' : ''} in this space`">
+              <Tooltip v-if="spaceAttentionCount(space) > 0">
+                <TooltipTrigger as-child>
+                  <SidebarMenuBadge
+                    class="text-amber-500 font-semibold"
+                    :title="`${spaceAttentionCount(space)} items need attention`"
+                  >
+                    {{ spaceAttentionCount(space) }}
+                  </SidebarMenuBadge>
+                </TooltipTrigger>
+                <TooltipContent side="right">
+                  {{ spaceAttentionCount(space) }} question{{ spaceAttentionCount(space) !== 1 ? 's' : '' }}/blocker{{ spaceAttentionCount(space) !== 1 ? 's' : '' }} need attention
+                </TooltipContent>
+              </Tooltip>
+              <SidebarMenuBadge v-else :title="`${space.agent_count} agent${space.agent_count !== 1 ? 's' : ''} in this space`">
                 {{ space.agent_count }}
               </SidebarMenuBadge>
             </SidebarMenuItem>
@@ -194,8 +228,19 @@ function statusTooltip(status: string): string {
                       </div>
                     </div>
                   </SidebarMenuButton>
+                  <Tooltip v-if="agentAttentionCount(agent) > 0">
+                    <TooltipTrigger as-child>
+                      <SidebarMenuBadge class="text-amber-500 font-semibold text-[10px]">
+                        {{ agentAttentionCount(agent) }}
+                      </SidebarMenuBadge>
+                    </TooltipTrigger>
+                    <TooltipContent side="right">
+                      {{ agent.questions?.length ?? 0 }} question{{ (agent.questions?.length ?? 0) !== 1 ? 's' : '' }},
+                      {{ agent.blockers?.length ?? 0 }} blocker{{ (agent.blockers?.length ?? 0) !== 1 ? 's' : '' }}
+                    </TooltipContent>
+                  </Tooltip>
                   <SidebarMenuBadge
-                    v-if="agent.phase"
+                    v-else-if="agent.phase"
                     class="text-muted-foreground text-[10px]"
                     :title="`Current phase: ${agent.phase}`"
                   >
