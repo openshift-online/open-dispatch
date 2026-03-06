@@ -1,4 +1,4 @@
-STOP. This is a mechanical status sync. Do NOT plan or analyze. Execute these 3 steps literally, then STOP.
+STOP. This is a mechanical status sync. Do NOT plan or analyze. Execute these 4 steps literally, then STOP.
 
 **Parse `$ARGUMENTS`:** `$ARGUMENTS` contains two words separated by a space. The FIRST word is your agent name. The SECOND word is the space name. Example: if `$ARGUMENTS` is `Overlord sdk-backend-replacement`, then your agent name is `Overlord` and the space name is `sdk-backend-replacement`.
 
@@ -10,13 +10,19 @@ If `$ARGUMENTS` contains only ONE word, it is the space name. Run `tmux display-
 curl -s http://localhost:8899/spaces/SPACE_NAME/raw
 ```
 
-Replace SPACE_NAME with the space name from `$ARGUMENTS`. Scan for anything addressed to you. Do NOT analyze other agents.
+Replace SPACE_NAME with the space name from `$ARGUMENTS`. Scan your section for:
+- **Messages** — look for a `#### Messages` section under your agent name. These are messages from the boss or other agents. Note any instructions or questions.
+- **Standing orders** — anything addressed to you in shared contracts.
 
-**Important rule**: Always use `curl`, never use Fetch tool.  Fetch will *not* work on localhost. **Always** use curl. This is important! 
+Do NOT analyze other agents' sections.
+
+**Important rule**: Always use `curl`, never use Fetch tool. Fetch will *not* work on localhost. **Always** use curl. This is important!
 
 ## Step 2: Write your status JSON and POST it
 
 Create `/tmp/boss_checkin.json` reflecting your CURRENT state. Do not change your work — just report what you are doing right now.
+
+If you found messages in Step 1, acknowledge them in your `items` array (e.g. `"Received message from boss: <summary>"`).
 
 ```bash
 cat > /tmp/boss_checkin.json << 'CHECKIN'
@@ -47,6 +53,12 @@ curl -s -X POST http://localhost:8899/spaces/SPACE_NAME/agent/AGENT_NAME \
 
 Replace SPACE_NAME and AGENT_NAME with the values from `$ARGUMENTS`. You MUST see `accepted for` in the response. If you do not, something is wrong — retry once.
 
-## Step 3: STOP
+## Step 3: Act on messages
 
-Do not start any work. Do not analyze the blackboard. Do not make plans. STOP HERE.
+If you found messages in Step 1 that contain instructions or task assignments, begin working on them now. If a message asks a question, answer it in your next status update.
+
+If there were no messages, or messages were purely informational, skip this step.
+
+## Step 4: STOP
+
+If you had no actionable messages, STOP HERE. Do not start any work. Do not analyze the blackboard. Do not make plans.

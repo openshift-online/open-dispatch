@@ -44,3 +44,12 @@ Using the protocol and template from Step 2, post your initial status to your ch
 - **Tag questions with `[?BOSS]`** when you need the human to make a decision.
 - **Post to your own channel only** — the server rejects cross-channel posts.
 - **Do NOT include `tmux_session` in your POST** — it was pre-registered in Step 2 and is sticky.
+- **Check for messages** — when you read `/raw`, look for a `#### Messages` section under your agent name. These are messages from the boss or other agents sent via the dashboard. Acknowledge them in your next status POST and act on any instructions.
+- **Send messages to other agents** — to message another agent, POST to their message endpoint:
+  ```bash
+  curl -s -X POST http://localhost:8899/spaces/SPACE_NAME/agent/OTHER_AGENT/message \
+    -H 'Content-Type: application/json' \
+    -H 'X-Agent-Name: YOUR_NAME' \
+    -d '{"message": "your message here"}'
+  ```
+  The message will appear in their `#### Messages` section on the next check-in.

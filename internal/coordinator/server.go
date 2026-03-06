@@ -30,20 +30,20 @@ type sseClient struct {
 }
 
 type Server struct {
-	port             string
-	dataDir          string
-	spaces           map[string]*KnowledgeSpace
-	mu               sync.RWMutex
-	httpServer       *http.Server
-	running          bool
-	runMu            sync.Mutex
-	EventLog         []string
-	eventMu          sync.Mutex
-	stopLiveness     chan struct{}
-	sseClients       map[*sseClient]struct{}
-	sseMu            sync.Mutex
-	interrupts       *InterruptLedger
-	approvalTracked  map[string]time.Time
+	port            string
+	dataDir         string
+	spaces          map[string]*KnowledgeSpace
+	mu              sync.RWMutex
+	httpServer      *http.Server
+	running         bool
+	runMu           sync.Mutex
+	EventLog        []string
+	eventMu         sync.Mutex
+	stopLiveness    chan struct{}
+	sseClients      map[*sseClient]struct{}
+	sseMu           sync.Mutex
+	interrupts      *InterruptLedger
+	approvalTracked map[string]time.Time
 }
 
 func NewServer(port, dataDir string) *Server {
@@ -274,7 +274,6 @@ func (s *Server) getOrCreateSpace(name string) *KnowledgeSpace {
 	s.logEvent(fmt.Sprintf("created space %q", name))
 	return ks
 }
-
 
 func (s *Server) getSpace(name string) (*KnowledgeSpace, bool) {
 	s.mu.RLock()
@@ -702,6 +701,14 @@ func (s *Server) handleSpaceAgent(w http.ResponseWriter, r *http.Request, spaceN
 			if update.RepoURL == "" && existing.RepoURL != "" {
 				update.RepoURL = existing.RepoURL
 			}
+			// Preserve messages — agents don't include them in updates
+			if len(update.Messages) == 0 && len(existing.Messages) > 0 {
+				update.Messages = existing.Messages
+			}
+			// Preserve documents — managed via the /agent/{name}/{slug} endpoint
+			if len(update.Documents) == 0 && len(existing.Documents) > 0 {
+				update.Documents = existing.Documents
+			}
 		}
 		ks.Agents[canonical] = &update
 		ks.UpdatedAt = time.Now().UTC()
@@ -753,7 +760,7 @@ func (s *Server) handleAgentMessage(w http.ResponseWriter, r *http.Request, spac
 	}
 
 	agentName = strings.TrimRight(agentName, "/")
-	
+
 	// Sender authentication - require X-Agent-Name header
 	senderName := r.Header.Get("X-Agent-Name")
 	if senderName == "" {
@@ -793,7 +800,7 @@ func (s *Server) handleAgentMessage(w http.ResponseWriter, r *http.Request, spac
 	}
 
 	canonical := resolveAgentName(ks, agentName)
-	
+
 	s.mu.Lock()
 	agent, exists := ks.Agents[canonical]
 	if !exists {
@@ -812,12 +819,12 @@ func (s *Server) handleAgentMessage(w http.ResponseWriter, r *http.Request, spac
 		agent.Messages = []AgentMessage{}
 	}
 	agent.Messages = append(agent.Messages, messageReq)
-	
+
 	// Limit message history to last 50 messages
 	if len(agent.Messages) > 50 {
 		agent.Messages = agent.Messages[len(agent.Messages)-50:]
 	}
-	
+
 	ks.UpdatedAt = time.Now().UTC()
 	if err := s.saveSpace(ks); err != nil {
 		s.mu.Unlock()
@@ -827,7 +834,7 @@ func (s *Server) handleAgentMessage(w http.ResponseWriter, r *http.Request, spac
 	s.mu.Unlock()
 
 	// Log the message event
-	s.logEvent(fmt.Sprintf("[%s/%s] Message from %s: %s", spaceName, canonical, senderName, 
+	s.logEvent(fmt.Sprintf("[%s/%s] Message from %s: %s", spaceName, canonical, senderName,
 		func() string {
 			if len(messageReq.Message) > 50 {
 				return messageReq.Message[:47] + "..."
@@ -837,9 +844,9 @@ func (s *Server) handleAgentMessage(w http.ResponseWriter, r *http.Request, spac
 
 	// Broadcast SSE event for real-time updates
 	sseData, _ := json.Marshal(map[string]interface{}{
-		"space":  spaceName,
-		"agent":  canonical,
-		"sender": senderName,
+		"space":   spaceName,
+		"agent":   canonical,
+		"sender":  senderName,
 		"message": messageReq.Message,
 	})
 	s.broadcastSSE(spaceName, "agent_message", string(sseData))
@@ -847,7 +854,7 @@ func (s *Server) handleAgentMessage(w http.ResponseWriter, r *http.Request, spac
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"status": "delivered",
+		"status":    "delivered",
 		"messageId": messageReq.ID,
 		"recipient": canonical,
 	})
@@ -855,7 +862,7 @@ func (s *Server) handleAgentMessage(w http.ResponseWriter, r *http.Request, spac
 
 func (s *Server) handleAgentDocument(w http.ResponseWriter, r *http.Request, spaceName, agentName, documentSlug string) {
 	agentName = strings.TrimRight(agentName, "/")
-	
+
 	// Agent name enforcement - ensure X-Agent-Name header matches for writes
 	if r.Method == http.MethodPost || r.Method == http.MethodPut {
 		callerName := r.Header.Get("X-Agent-Name")
@@ -868,7 +875,7 @@ func (s *Server) handleAgentDocument(w http.ResponseWriter, r *http.Request, spa
 			return
 		}
 	}
-	
+
 	// Sanitize document slug
 	if !regexp.MustCompile(`^[a-zA-Z0-9_-]+$`).MatchString(documentSlug) {
 		http.Error(w, "invalid document slug: must be alphanumeric with underscores and dashes only", http.StatusBadRequest)
@@ -922,18 +929,18 @@ func (s *Server) handleAgentDocument(w http.ResponseWriter, r *http.Request, spa
 		// Update agent's documents list in the knowledge space
 		ks := s.getOrCreateSpace(spaceName)
 		canonical := resolveAgentName(ks, agentName)
-		
+
 		s.mu.Lock()
 		if ks.Agents[canonical] == nil {
 			ks.Agents[canonical] = &AgentUpdate{
-				Status: StatusActive,
-				Summary: "Document uploaded",
+				Status:    StatusActive,
+				Summary:   "Document uploaded",
 				UpdatedAt: time.Now().UTC(),
 			}
 		}
-		
+
 		agent := ks.Agents[canonical]
-		
+
 		// Add or update document in the list
 		found := false
 		for i, doc := range agent.Documents {
@@ -950,10 +957,10 @@ func (s *Server) handleAgentDocument(w http.ResponseWriter, r *http.Request, spa
 				Content: string(content),
 			})
 		}
-		
+
 		agent.UpdatedAt = time.Now().UTC()
 		ks.UpdatedAt = time.Now().UTC()
-		
+
 		if err := s.saveSpace(ks); err != nil {
 			s.mu.Unlock()
 			http.Error(w, fmt.Sprintf("save space: %v", err), http.StatusInternalServerError)
@@ -1064,6 +1071,7 @@ func (s *Server) handleIgnition(w http.ResponseWriter, r *http.Request, spaceNam
 	} else {
 		b.WriteString("5. **Register your tmux session.** Include `\"tmux_session\"` in your first POST. Find it with `tmux display-message -p '#S'`. It is sticky — you only need to send it once.\n")
 	}
+	b.WriteString(fmt.Sprintf("6. **Check your messages.** When you read `/raw`, look for a `#### Messages` section under your agent name. These are messages from the boss or other agents. Acknowledge them in your status POST and act on any instructions. To send a message to another agent: `curl -s -X POST http://localhost%s/spaces/%s/agent/{target}/message -H 'Content-Type: application/json' -H 'X-Agent-Name: %s' -d '{\"message\": \"...\"}'`\n", s.port, spaceName, agentName))
 	b.WriteString("\n")
 
 	b.WriteString("## Peer Agents\n\n")
@@ -1097,6 +1105,16 @@ func (s *Server) handleIgnition(w http.ResponseWriter, r *http.Request, spaceNam
 			b.WriteString(fmt.Sprintf("- Next steps: %s\n", existing.NextSteps))
 		}
 		b.WriteString("\n")
+
+		if len(existing.Messages) > 0 {
+			b.WriteString("## Pending Messages\n\n")
+			b.WriteString("**You have unread messages. Read and act on them.**\n\n")
+			for _, msg := range existing.Messages {
+				b.WriteString(fmt.Sprintf("- **%s** (%s): %s\n",
+					msg.Sender, msg.Timestamp.Format("15:04"), msg.Message))
+			}
+			b.WriteString("\n")
+		}
 	}
 
 	b.WriteString("## JSON Post Template\n\n")

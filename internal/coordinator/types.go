@@ -42,24 +42,24 @@ func (s AgentStatus) Emoji() string {
 }
 
 type AgentUpdate struct {
-	Status    AgentStatus `json:"status"`
-	Summary   string      `json:"summary"`
-	Branch   string      `json:"branch,omitempty"`
-	Worktree string      `json:"worktree,omitempty"`
-	PR       string      `json:"pr,omitempty"`
-	Phase    string      `json:"phase,omitempty"`
-	TestCount *int        `json:"test_count,omitempty"`
-	Items     []string    `json:"items,omitempty"`
-	Sections  []Section   `json:"sections,omitempty"`
-	Questions []string    `json:"questions,omitempty"`
-	Blockers  []string    `json:"blockers,omitempty"`
-	NextSteps    string      `json:"next_steps,omitempty"`
-	FreeText     string      `json:"free_text,omitempty"`
-	Documents    []AgentDocument `json:"documents,omitempty"`
-	TmuxSession  string      `json:"tmux_session,omitempty"`
-	RepoURL      string         `json:"repo_url,omitempty"`
-	Messages     []AgentMessage `json:"messages,omitempty"`
-	UpdatedAt    time.Time      `json:"updated_at"`
+	Status      AgentStatus     `json:"status"`
+	Summary     string          `json:"summary"`
+	Branch      string          `json:"branch,omitempty"`
+	Worktree    string          `json:"worktree,omitempty"`
+	PR          string          `json:"pr,omitempty"`
+	Phase       string          `json:"phase,omitempty"`
+	TestCount   *int            `json:"test_count,omitempty"`
+	Items       []string        `json:"items,omitempty"`
+	Sections    []Section       `json:"sections,omitempty"`
+	Questions   []string        `json:"questions,omitempty"`
+	Blockers    []string        `json:"blockers,omitempty"`
+	NextSteps   string          `json:"next_steps,omitempty"`
+	FreeText    string          `json:"free_text,omitempty"`
+	Documents   []AgentDocument `json:"documents,omitempty"`
+	TmuxSession string          `json:"tmux_session,omitempty"`
+	RepoURL     string          `json:"repo_url,omitempty"`
+	Messages    []AgentMessage  `json:"messages,omitempty"`
+	UpdatedAt   time.Time       `json:"updated_at"`
 }
 
 type Section struct {
@@ -224,6 +224,15 @@ func renderAgentSection(name string, agent *AgentUpdate) string {
 	if agent.FreeText != "" {
 		b.WriteString(agent.FreeText)
 		b.WriteString("\n\n")
+	}
+
+	if len(agent.Messages) > 0 {
+		b.WriteString("#### Messages\n\n")
+		for _, msg := range agent.Messages {
+			b.WriteString(fmt.Sprintf("- **%s** (%s): %s\n",
+				msg.Sender, msg.Timestamp.Format("15:04"), msg.Message))
+		}
+		b.WriteString("\n")
 	}
 
 	if len(agent.Documents) > 0 {

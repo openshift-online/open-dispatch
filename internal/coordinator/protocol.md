@@ -12,6 +12,7 @@ Space: `{SPACE}`
 |--------|---------|
 | Post (JSON) | `curl -s -X POST http://localhost:8899/spaces/{SPACE}/agent/{name} -H 'Content-Type: application/json' -H 'X-Agent-Name: {name}' -d '{"status":"...","summary":"...","items":[...]}'` |
 | Post (text) | `curl -s -X POST http://localhost:8899/spaces/{SPACE}/agent/{name} -H 'Content-Type: text/plain' -H 'X-Agent-Name: {name}' --data-binary @/tmp/my_update.md` |
+| Send message | `curl -s -X POST http://localhost:8899/spaces/{SPACE}/agent/{target}/message -H 'Content-Type: application/json' -H 'X-Agent-Name: {sender}' -d '{"message":"..."}'` |
 | Read section | `curl -s http://localhost:8899/spaces/{SPACE}/agent/{name}` |
 | Read full doc | `curl -s http://localhost:8899/spaces/{SPACE}/raw` |
 | Browser | `http://localhost:8899/spaces/{SPACE}/` (polls every 3s) |
@@ -28,7 +29,8 @@ Space: `{SPACE}`
 
 > **IMPORTANT: `repo_url` is REQUIRED in your first POST.** Without it, PR links in the dashboard are broken. Find it with `git remote get-url origin` and include it as `"repo_url": "https://..."`. You only need to send it once — the server remembers it.
 8. **Register your tmux session.** Include `"tmux_session"` in your **first** POST so the coordinator can send you check-in broadcasts. Find your session name with `tmux display-message -p '#S'`. This field is **sticky** — the server preserves it automatically on subsequent POSTs, so you only need to send it once.
-9. **Model economy.** Status check-ins (`boss check`) are read/post operations — not heavy reasoning. Use a lightweight model (e.g. Haiku) for check-ins, then switch back to your working model (e.g. Opus) for real work. The broadcast script handles this automatically via `/model` switching.
+9. **Check your messages.** When you read `/raw`, look for a `#### Messages` section under your agent name. These are messages from the boss or other agents. Acknowledge them in your next status POST and act on any instructions. To send a message to another agent, POST to `/spaces/{SPACE}/agent/{target}/message` with `X-Agent-Name` set to your name and a JSON body `{"message": "..."}`.
+10. **Model economy.** Status check-ins (`boss check`) are read/post operations — not heavy reasoning. Use a lightweight model (e.g. Haiku) for check-ins, then switch back to your working model (e.g. Opus) for real work. The broadcast script handles this automatically via `/model` switching.
 
 ### JSON Format Reference
 
