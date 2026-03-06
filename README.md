@@ -105,11 +105,11 @@ cd paude && podman build -t localhost/paude-proxy-centos9:latest .
 DATA_DIR=./data ./boss serve
 
 # 4. Boot all agents in secure containers
-./scripts/boot-paude-workspace.sh sdk-backend-replacement
+./scripts/boss.sh sdk-backend-replacement
 
 # 5. Monitor and manage agents
-./scripts/boot-paude-workspace.sh status
-./scripts/boot-paude-workspace.sh connect API
+./scripts/boss.sh status
+./scripts/boss.sh connect API
 ```
 
 **Paude Benefits:**
@@ -124,17 +124,17 @@ DATA_DIR=./data ./boss serve
 ```bash
 # Build and deployment
 ./scripts/build-paude-claude.sh                  # Build integrated image
-./scripts/boot-paude-workspace.sh start          # Start all agents
-./scripts/boot-paude-workspace.sh stop           # Stop all agents  
+./scripts/boss.sh start                          # Start all agents
+./scripts/boss.sh stop                           # Stop all agents  
 
 # Agent management  
-./scripts/boot-paude-workspace.sh status         # Container + Boss status
-./scripts/boot-paude-workspace.sh connect API    # Interactive shell access
-./scripts/boot-paude-workspace.sh restart CP     # Restart crashed agent
-./scripts/boot-paude-workspace.sh test           # Test broadcast feature
+./scripts/boss.sh status                         # Container + Boss status
+./scripts/boss.sh connect API                    # Interactive shell access
+./scripts/boss.sh restart CP                     # Restart crashed agent
+./scripts/boss.sh test                           # Test broadcast feature
 
 # Advanced usage
-./scripts/boot-paude-workspace.sh my-workspace   # Custom workspace
+./scripts/boss.sh my-workspace                   # Custom workspace
 podman logs paude-workspace-agent                # Debug container logs
 ```
 
@@ -144,7 +144,7 @@ podman logs paude-workspace-agent                # Debug container logs
 - **Auto-features**: Boss registration, ignition context, git commit notifications
 - **Security**: Network filtering, container isolation, safe dangerous tools
 
-See [docs/paude.md](docs/paude.md) for complete integration guide and [docs/paude2.md](docs/paude2.md) for architecture details.
+See [docs/paude.md](docs/paude.md) for complete integration guide and architecture details.
 
 ## API Reference
 
