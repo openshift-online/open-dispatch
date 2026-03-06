@@ -201,6 +201,7 @@
 @layer base {
   * {
     @apply border-border outline-ring/50;
+    transition: color 150ms ease, background-color 150ms ease, border-color 150ms ease, box-shadow 150ms ease, opacity 150ms ease;
   }
   body {
     @apply bg-background text-foreground font-sans antialiased;
@@ -208,4 +209,48 @@
   code, pre, .font-mono {
     font-family: 'Red Hat Mono', ui-monospace, monospace;
   }
+
+  /* Focus-visible ring glow animation */
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+    animation: focus-ring-glow 1.5s ease-in-out infinite;
+  }
+
+  /* Dark mode scrollbar */
+  .dark ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .dark ::-webkit-scrollbar-track {
+    background: oklch(0.175 0 0);
+  }
+  .dark ::-webkit-scrollbar-thumb {
+    background: oklch(0.35 0 0);
+    border-radius: 4px;
+  }
+  .dark ::-webkit-scrollbar-thumb:hover {
+    background: oklch(0.45 0 0);
+  }
+  .dark {
+    scrollbar-color: oklch(0.35 0 0) oklch(0.175 0 0);
+    scrollbar-width: thin;
+  }
+}
+
+@keyframes focus-ring-glow {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in oklch, var(--ring) 40%, transparent); }
+  50%       { box-shadow: 0 0 0 4px color-mix(in oklch, var(--ring) 20%, transparent); }
+}
+
+/* Card hover lift utility */
+.card-hover {
+  transition: transform 150ms ease, box-shadow 150ms ease;
+}
+.card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px oklch(0 0 0 / 20%);
+}
+.dark .card-hover:hover {
+  box-shadow: 0 8px 24px oklch(0 0 0 / 45%);
 }
