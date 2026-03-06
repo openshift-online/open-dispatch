@@ -274,6 +274,21 @@ async function handleDeleteAgent(agentName?: string) {
   }
 }
 
+async function handleDeleteSpace(spaceName: string) {
+  try {
+    await api.deleteSpace(spaceName)
+    showStatus(`Deleted space "${spaceName}"`)
+    if (selectedSpace.value === spaceName) {
+      currentSpace.value = null
+      router.push('/')
+    }
+    await loadSpaces()
+  } catch (err) {
+    console.error('Delete space failed:', err)
+    showError(`Failed to delete space "${spaceName}".`)
+  }
+}
+
 async function handleBroadcastSingleAgent(agentName: string) {
   if (!selectedSpace.value) return
   try {
@@ -563,6 +578,7 @@ onUnmounted(() => {
         @select-space="handleSelectSpace"
         @select-agent="handleSelectAgent"
         @broadcast="handleBroadcastSpace"
+        @delete-space="handleDeleteSpace"
       />
       <SidebarInset class="flex flex-col h-dvh">
         <!-- Header -->

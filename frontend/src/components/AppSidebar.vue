@@ -15,13 +15,31 @@ import {
   SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarMenuAction,
   SidebarInput,
   SidebarSeparator,
 } from '@/components/ui/sidebar'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { Radio, AlertCircle, ChevronRight } from 'lucide-vue-next'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import { Radio, AlertCircle, ChevronRight, MoreHorizontal, Trash2 } from 'lucide-vue-next'
 import AgentAvatar from './AgentAvatar.vue'
 
 const props = defineProps<{
@@ -36,6 +54,7 @@ const emit = defineEmits<{
   'select-space': [name: string]
   'select-agent': [name: string]
   broadcast: []
+  'delete-space': [name: string]
 }>()
 
 const router = useRouter()
@@ -105,7 +124,8 @@ const agentCountSummary = computed(() => {
     .join(', ')
 })
 
-// Inactive sub-group: expanded by default only when total agents < 5
+// Inactive sub-group: expanded by default only when total agents < 5,
+// or when the currently selected agent is in the inactive group
 const inactiveOpen = ref(false)
 watch(
   () => props.selectedSpace,
@@ -123,6 +143,35 @@ watch(
   },
   { immediate: true }
 )
+// Auto-expand inactive group when the selected agent is idle/done
+watch(
+  () => [props.selectedAgent, props.currentSpace] as const,
+  ([agent, space]) => {
+    if (!agent || !space) return
+    const agentData = space.agents[agent]
+    if (agentData && (agentData.status === 'idle' || agentData.status === 'done')) {
+      inactiveOpen.value = true
+    }
+  }
+)
+
+// Space delete confirmation
+const spaceToDelete = ref<string | null>(null)
+
+function requestDeleteSpace(name: string) {
+  spaceToDelete.value = name
+}
+
+function confirmDeleteSpace() {
+  if (spaceToDelete.value) {
+    emit('delete-space', spaceToDelete.value)
+    spaceToDelete.value = null
+  }
+}
+
+function cancelDeleteSpace() {
+  spaceToDelete.value = null
+}
 
 // Attention count: use server-provided value, but for the selected space
 // also compute from loaded agent data (in case server hasn't been restarted)
@@ -160,7 +209,6 @@ function statusLabel(status: string): string {
   return display ? display.label : status
 }
 
-
 </script>
 
 <template>
@@ -179,17 +227,22 @@ function statusLabel(status: string): string {
         <SidebarGroupLabel>Spaces</SidebarGroupLabel>
         <SidebarGroupContent>
           <SidebarMenu>
-            <SidebarMenuItem v-for="space in sortedSpaces" :key="space.name">
-              <SidebarMenuButton
-                :data-active="space.name === selectedSpace"
-                :aria-current="space.name === selectedSpace ? 'true' : undefined"
-                @click="handleSelectSpace(space.name)"
-              >
-                <span class="truncate">{{ space.name }}</span>
-              </SidebarMenuButton>
+            <SidebarMenuItem v-for="space in sortedSpaces" :key="space.name" class="group/space-item">
+              <Tooltip>
+                <TooltipTrigger as-child>
+                  <SidebarMenuButton
+                    :data-active="space.name === selectedSpace"
+                    :aria-current="space.name === selectedSpace ? 'true' : undefined"
+                    @click="handleSelectSpace(space.name)"
+                  >
+                    <span class="truncate">{{ space.name }}</span>
+                  </SidebarMenuButton>
+                </TooltipTrigger>
+                <TooltipContent side="right">{{ space.name }}</TooltipContent>
+              </Tooltip>
               <Tooltip v-if="spaceAttentionCount(space) > 0">
                 <TooltipTrigger as-child>
-                  <SidebarMenuBadge class="flex items-center gap-1 text-amber-500 font-semibold">
+                  <SidebarMenuBadge class="flex items-center gap-1 text-amber-500 font-semibold group-hover/space-item:opacity-0 transition-opacity">
                     <AlertCircle class="size-3" aria-hidden="true" />
                     {{ spaceAttentionCount(space) }}
                   </SidebarMenuBadge>
@@ -198,9 +251,29 @@ function statusLabel(status: string): string {
                   {{ spaceAttentionCount(space) }} item{{ spaceAttentionCount(space) !== 1 ? 's' : '' }} need{{ spaceAttentionCount(space) === 1 ? 's' : '' }} attention
                 </TooltipContent>
               </Tooltip>
-              <SidebarMenuBadge v-else :title="`${space.agent_count} agent${space.agent_count !== 1 ? 's' : ''} in this space`">
+              <SidebarMenuBadge v-else :title="`${space.agent_count} agent${space.agent_count !== 1 ? 's' : ''} in this space`" class="group-hover/space-item:opacity-0 transition-opacity">
                 {{ space.agent_count }}
               </SidebarMenuBadge>
+              <!-- Space context menu -->
+              <DropdownMenu>
+                <DropdownMenuTrigger as-child>
+                  <SidebarMenuAction
+                    :show-on-hover="true"
+                    :aria-label="`Options for space ${space.name}`"
+                  >
+                    <MoreHorizontal class="size-4" aria-hidden="true" />
+                  </SidebarMenuAction>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent side="right" align="start">
+                  <DropdownMenuItem
+                    class="text-destructive focus:text-destructive focus:bg-destructive/10 cursor-pointer"
+                    @click="requestDeleteSpace(space.name)"
+                  >
+                    <Trash2 class="size-4 mr-2" aria-hidden="true" />
+                    Delete space
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </SidebarMenuItem>
             <SidebarMenuItem v-if="spaces.length === 0">
               <div class="px-2 py-3 text-sm text-muted-foreground font-text">
@@ -417,4 +490,25 @@ function statusLabel(status: string): string {
       </Tooltip>
     </SidebarFooter>
   </Sidebar>
+
+  <!-- Delete space confirmation dialog -->
+  <AlertDialog :open="spaceToDelete !== null" @update:open="(v) => { if (!v) cancelDeleteSpace() }">
+    <AlertDialogContent>
+      <AlertDialogHeader>
+        <AlertDialogTitle>Delete space "{{ spaceToDelete }}"?</AlertDialogTitle>
+        <AlertDialogDescription>
+          This will permanently delete the space and all its agent data. This action cannot be undone.
+        </AlertDialogDescription>
+      </AlertDialogHeader>
+      <AlertDialogFooter>
+        <AlertDialogCancel @click="cancelDeleteSpace">Cancel</AlertDialogCancel>
+        <AlertDialogAction
+          class="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+          @click="confirmDeleteSpace"
+        >
+          Delete
+        </AlertDialogAction>
+      </AlertDialogFooter>
+    </AlertDialogContent>
+  </AlertDialog>
 </template>
