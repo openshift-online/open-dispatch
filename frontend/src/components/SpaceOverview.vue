@@ -608,7 +608,7 @@ const activeSections = computed(() => [
                     <TooltipContent>{{ formatFullDate(agent.updated_at) }}</TooltipContent>
                   </Tooltip>
                   <!-- Hover actions -->
-                  <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity shrink-0" @click.stop>
+                  <div class="flex items-center gap-1 opacity-40 group-hover:opacity-100 focus-within:opacity-100 transition-opacity shrink-0" @click.stop>
                     <Tooltip>
                       <TooltipTrigger as-child>
                         <Button

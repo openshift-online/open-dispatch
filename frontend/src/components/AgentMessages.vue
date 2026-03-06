@@ -61,7 +61,7 @@ function scrollToBottom() {
   })
 }
 
-onMounted(scrollToBottom)
+onMounted(() => nextTick().then(scrollToBottom))
 
 watch(() => props.messages.length, scrollToBottom)
 

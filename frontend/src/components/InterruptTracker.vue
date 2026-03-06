@@ -203,6 +203,16 @@ function handleReplyKeydown(e: KeyboardEvent, item: Interrupt) {
   }
 }
 
+function handleCardKeydown(e: KeyboardEvent, index: number) {
+  // Arrow key navigation between interrupt cards
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault()
+    const cards = document.querySelectorAll<HTMLElement>('[data-interrupt-card]')
+    const next = cards[e.key === 'ArrowDown' ? index + 1 : index - 1]
+    next?.focus()
+  }
+}
+
 async function confirmMarkAllResolved() {
   markAllDialogOpen.value = false
   markingAll.value = true
@@ -336,14 +346,18 @@ onMounted(fetchData)
 
       <div class="space-y-2">
         <Card
-          v-for="item in filteredInterrupts"
+          v-for="(item, index) in filteredInterrupts"
           :key="item.id"
+          data-interrupt-card
+          tabindex="0"
           :class="[
-            'transition-colors',
+            'transition-colors focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-2',
             item.resolution ? 'opacity-60' : '',
             urgencyClass(item),
           ]"
           :role="item.resolution ? undefined : 'alert'"
+          :aria-label="`${item.type} from ${item.agent}${item.resolution ? ', resolved' : ', pending'}`"
+          @keydown="handleCardKeydown($event, index)"
         >
           <CardContent class="p-4 space-y-2">
             <!-- Top row: agent badge, type badge, urgency wait time, timestamp -->

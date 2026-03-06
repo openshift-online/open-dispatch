@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { SpaceSummary, KnowledgeSpace, TmuxAgentStatus, AgentUpdate } from '@/types'
 import { api } from '@/api/client'
@@ -23,6 +23,7 @@ import AppSidebar from '@/components/AppSidebar.vue'
 import SpaceOverview from '@/components/SpaceOverview.vue'
 import AgentDetail from '@/components/AgentDetail.vue'
 import EventLog from '@/components/EventLog.vue'
+import { Keyboard } from 'lucide-vue-next'
 import { useTheme } from '@/composables/useTheme'
 
 const { theme, toggle: toggleTheme } = useTheme()
@@ -47,12 +48,22 @@ const sse = useSSE()
 const eventLogRef = ref<InstanceType<typeof EventLog> | null>(null)
 let pollTimer: ReturnType<typeof setInterval> | null = null
 
+// ── Component refs ──────────────────────────────────────────────────
+const spaceOverviewRef = ref<InstanceType<typeof SpaceOverview> | null>(null)
+
 // ── Keyboard shortcut state ────────────────────────────────────────
 const showHelpOverlay = ref(false)
 const showMessageDialog = ref(false)
 const kbMessageText = ref('')
 const kbMessageSender = ref('boss')
 const kbMessageSending = ref(false)
+const savedFocusEl = ref<HTMLElement | null>(null)
+
+function restoreFocus() {
+  const el = savedFocusEl.value
+  savedFocusEl.value = null
+  if (el) nextTick(() => el.focus())
+}
 
 // ── Route-derived selection ────────────────────────────────────────
 const selectedSpace = computed(() => {
@@ -495,6 +506,9 @@ function handleKeydown(e: KeyboardEvent) {
   // '?' — toggle help overlay
   if (e.key === '?') {
     e.preventDefault()
+    if (!showHelpOverlay.value) {
+      savedFocusEl.value = document.activeElement as HTMLElement | null
+    }
     showHelpOverlay.value = !showHelpOverlay.value
     return
   }
@@ -517,10 +531,36 @@ function handleKeydown(e: KeyboardEvent) {
 
   // '/' — focus search input if present
   if (e.key === '/') {
-    const searchEl = document.querySelector<HTMLInputElement>('input[type="search"], input[placeholder*="earch"], input[placeholder*="ilter"]')
+    const searchEl = document.querySelector<HTMLInputElement>('[data-search-focus]')
     if (searchEl) {
       e.preventDefault()
       searchEl.focus()
+    }
+    return
+  }
+
+  // 'i' — switch to inbox tab in space overview
+  if (e.key === 'i') {
+    if (!selectedSpace.value || selectedAgent.value) return
+    e.preventDefault()
+    spaceOverviewRef.value?.switchToInbox()
+    return
+  }
+
+  // '[' / ']' — switch between spaces
+  if (e.key === '[' || e.key === ']') {
+    if (spaces.value.length === 0) return
+    e.preventDefault()
+    const currentIdx = spaces.value.findIndex(s => s.name === selectedSpace.value)
+    let nextIdx: number
+    if (e.key === ']') {
+      nextIdx = currentIdx < spaces.value.length - 1 ? currentIdx + 1 : 0
+    } else {
+      nextIdx = currentIdx > 0 ? currentIdx - 1 : spaces.value.length - 1
+    }
+    const nextSpace = spaces.value[nextIdx]
+    if (nextSpace) {
+      router.push('/' + nextSpace.name)
     }
     return
   }
@@ -558,6 +598,7 @@ function handleKeydown(e: KeyboardEvent) {
     e.preventDefault()
     kbMessageText.value = ''
     kbMessageSender.value = 'boss'
+    savedFocusEl.value = document.activeElement as HTMLElement | null
     showMessageDialog.value = true
     return
   }
@@ -640,6 +681,7 @@ onUnmounted(() => {
               <span class="text-muted-foreground">/</span>
               <button
                 :aria-label="`Navigate to ${selectedSpace} overview`"
+                :aria-current="!selectedAgent ? 'page' : undefined"
                 class="text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
                 :class="{ 'text-foreground font-medium': !selectedAgent }"
                 @click="router.push('/' + selectedSpace)"
@@ -648,7 +690,7 @@ onUnmounted(() => {
               </button>
               <template v-if="selectedAgent">
                 <span class="text-muted-foreground">/</span>
-                <span class="text-foreground font-medium">{{ selectedAgent }}</span>
+                <span class="text-foreground font-medium" aria-current="page">{{ selectedAgent }}</span>
               </template>
             </template>
           </nav>
@@ -790,7 +832,7 @@ onUnmounted(() => {
       </SidebarInset>
     </SidebarProvider>
     <!-- Keyboard shortcuts help overlay -->
-    <Dialog :open="showHelpOverlay" @update:open="showHelpOverlay = $event">
+    <Dialog :open="showHelpOverlay" @update:open="val => { showHelpOverlay = val; if (!val) restoreFocus() }">
       <DialogContent class="max-w-md">
         <DialogHeader>
           <DialogTitle>Keyboard Shortcuts</DialogTitle>
@@ -827,7 +869,7 @@ onUnmounted(() => {
     </Dialog>
 
     <!-- Keyboard-triggered message dialog -->
-    <Dialog :open="showMessageDialog" @update:open="showMessageDialog = $event">
+    <Dialog :open="showMessageDialog" @update:open="val => { showMessageDialog = val; if (!val) restoreFocus() }">
       <DialogContent class="max-w-sm">
         <DialogHeader>
           <DialogTitle>Message {{ selectedAgent }}</DialogTitle>

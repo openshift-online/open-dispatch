@@ -353,6 +353,18 @@ function startResize(e: MouseEvent | TouchEvent) {
   document.addEventListener('touchend', onEnd)
 }
 
+const RESIZE_STEP = 20
+
+function handleResizeKeydown(e: KeyboardEvent) {
+  if (e.key === 'ArrowUp') {
+    e.preventDefault()
+    panelHeight.value = Math.min(MAX_HEIGHT, panelHeight.value + RESIZE_STEP)
+  } else if (e.key === 'ArrowDown') {
+    e.preventDefault()
+    panelHeight.value = Math.max(MIN_HEIGHT, panelHeight.value - RESIZE_STEP)
+  }
+}
+
 // Reload events when space changes
 watch(() => props.spaceName, () => {
   entries.value = []
@@ -379,9 +391,17 @@ defineExpose({ pushSSEEvent, clearLog })
     <!-- Resize handle (only when open) -->
     <div
       v-if="isOpen"
-      class="h-3 cursor-ns-resize group shrink-0 flex items-center justify-center relative"
+      class="h-3 cursor-ns-resize group shrink-0 flex items-center justify-center relative focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-1"
+      tabindex="0"
+      role="separator"
+      aria-orientation="horizontal"
+      aria-label="Resize event log panel. Use ArrowUp/ArrowDown to adjust height."
+      :aria-valuenow="panelHeight"
+      :aria-valuemin="MIN_HEIGHT"
+      :aria-valuemax="MAX_HEIGHT"
       @mousedown.prevent="startResize"
       @touchstart.prevent="startResize"
+      @keydown="handleResizeKeydown"
     >
       <!-- Invisible wider hit area -->
       <div class="absolute inset-x-0 -top-1 -bottom-1" />
