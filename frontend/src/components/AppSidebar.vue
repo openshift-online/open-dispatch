@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { SpaceSummary, KnowledgeSpace, AgentStatus } from '@/types'
 import { STATUS_DISPLAY } from '@/types'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   Sidebar,
@@ -20,7 +20,7 @@ import {
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { Radio, AlertCircle } from 'lucide-vue-next'
+import { Radio, AlertCircle, ChevronRight } from 'lucide-vue-next'
 import AgentAvatar from './AgentAvatar.vue'
 
 const props = defineProps<{
@@ -56,10 +56,54 @@ const sortedSpaces = computed(() => {
   })
 })
 
+// Sort order matching card grid: error first, then blocked, active, idle, done
+const STATUS_ORDER: Record<string, number> = { error: 0, blocked: 1, active: 2, idle: 3, done: 4 }
+
 const sortedAgents = computed(() => {
   if (!props.currentSpace) return []
-  return Object.entries(props.currentSpace.agents).sort(([a], [b]) => a.localeCompare(b))
+  return Object.entries(props.currentSpace.agents).sort(([nameA, a], [nameB, b]) => {
+    const aOrder = STATUS_ORDER[a.status] ?? 5
+    const bOrder = STATUS_ORDER[b.status] ?? 5
+    if (aOrder !== bOrder) return aOrder - bOrder
+    return nameA.localeCompare(nameB)
+  })
 })
+
+// Agents needing attention: error, blocked, active
+const activeAgents = computed(() =>
+  sortedAgents.value.filter(([, a]) => a.status === 'error' || a.status === 'blocked' || a.status === 'active')
+)
+
+// Agents at rest: idle, done
+const inactiveAgents = computed(() =>
+  sortedAgents.value.filter(([, a]) => a.status === 'idle' || a.status === 'done')
+)
+
+// Status count summary line: "2 blocked, 3 active, 1 done" (only non-zero)
+const agentCountSummary = computed(() => {
+  if (!props.currentSpace) return ''
+  const counts: Partial<Record<AgentStatus, number>> = {}
+  for (const agent of Object.values(props.currentSpace.agents)) {
+    counts[agent.status] = (counts[agent.status] ?? 0) + 1
+  }
+  const order: AgentStatus[] = ['error', 'blocked', 'active', 'idle', 'done']
+  return order
+    .filter(s => counts[s])
+    .map(s => `${counts[s]} ${s}`)
+    .join(', ')
+})
+
+// Inactive sub-group: expanded by default only when total agents < 5
+const inactiveOpen = ref(false)
+watch(
+  () => props.currentSpace,
+  (space, prev) => {
+    if (space && !prev) {
+      inactiveOpen.value = Object.keys(space.agents).length < 5
+    }
+  },
+  { immediate: true }
+)
 
 // Attention count: use server-provided value, but for the selected space
 // also compute from loaded agent data (in case server hasn't been restarted)
@@ -112,7 +156,8 @@ function statusTooltip(status: string): string {
       </div>
     </SidebarHeader>
 
-    <SidebarContent class="overflow-x-hidden">
+    <!-- overflow-y-auto enables independent scrolling within the fixed-height sidebar -->
+    <SidebarContent class="overflow-x-hidden overflow-y-auto">
       <!-- Spaces -->
       <SidebarGroup>
         <SidebarGroupLabel>Spaces</SidebarGroupLabel>
@@ -175,9 +220,15 @@ function statusTooltip(status: string): string {
             </SidebarGroupLabel>
           </CollapsibleTrigger>
           <CollapsibleContent>
+            <!-- Compact status breakdown summary -->
+            <p v-if="agentCountSummary" class="px-3 pb-1 text-[11px] text-muted-foreground leading-none">
+              {{ agentCountSummary }}
+            </p>
+
             <SidebarGroupContent>
               <SidebarMenu>
-                <SidebarMenuItem v-for="[name, agent] in sortedAgents" :key="name">
+                <!-- Active agents: error, blocked, active — sorted by priority -->
+                <SidebarMenuItem v-for="[name, agent] in activeAgents" :key="name">
                   <SidebarMenuButton
                     size="lg"
                     class="py-3 h-auto min-h-12"
@@ -238,6 +289,7 @@ function statusTooltip(status: string): string {
                     {{ agent.phase }}
                   </SidebarMenuBadge>
                 </SidebarMenuItem>
+
                 <SidebarMenuItem v-if="sortedAgents.length === 0">
                   <div class="px-2 py-3 text-sm text-muted-foreground font-text">
                     No agents in this space yet
@@ -245,6 +297,80 @@ function statusTooltip(status: string): string {
                 </SidebarMenuItem>
               </SidebarMenu>
             </SidebarGroupContent>
+
+            <!-- Collapsible sub-group for done/idle agents -->
+            <Collapsible v-if="inactiveAgents.length > 0" v-model:open="inactiveOpen">
+              <CollapsibleTrigger
+                class="flex w-full items-center gap-1 px-3 py-1.5 text-[11px] text-muted-foreground hover:text-foreground cursor-pointer select-none"
+                :aria-expanded="inactiveOpen"
+              >
+                <ChevronRight
+                  :class="['size-3 transition-transform', inactiveOpen && 'rotate-90']"
+                  aria-hidden="true"
+                />
+                Done / Idle
+                <span class="ml-auto rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium tabular-nums">
+                  {{ inactiveAgents.length }}
+                </span>
+                <span class="sr-only">{{ inactiveOpen ? 'Collapse' : 'Expand' }} done and idle agents</span>
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <SidebarGroupContent>
+                  <SidebarMenu>
+                    <SidebarMenuItem v-for="[name, agent] in inactiveAgents" :key="name">
+                      <SidebarMenuButton
+                        size="lg"
+                        class="py-3 h-auto min-h-12 opacity-60"
+                        :data-active="name === selectedAgent"
+                        :aria-current="name === selectedAgent ? 'true' : undefined"
+                        :aria-label="`${name} — ${statusLabel(agent.status)}`"
+                        @click="handleSelectAgent(name)"
+                      >
+                        <div class="relative shrink-0">
+                          <AgentAvatar :name="name" :size="20" />
+                          <span
+                            :class="['absolute -bottom-0.5 -right-0.5 block size-2 rounded-full ring-1 ring-sidebar', statusDotClass(agent.status)]"
+                            aria-hidden="true"
+                          />
+                        </div>
+                        <div class="flex flex-col gap-0.5 min-w-0 flex-1">
+                          <span class="truncate">{{ name }}</span>
+                          <div v-if="agent.branch || agent.pr" class="flex items-center gap-1.5">
+                            <Tooltip v-if="agent.branch">
+                              <TooltipTrigger as-child>
+                                <span
+                                  class="font-mono text-[10px] text-muted-foreground bg-muted px-1 rounded truncate max-w-[100px]"
+                                >{{ agent.branch }}</span>
+                              </TooltipTrigger>
+                              <TooltipContent side="right">
+                                <div>Branch: {{ agent.branch }}</div>
+                                <div v-if="agent.repo_url">Repo: {{ agent.repo_url }}</div>
+                              </TooltipContent>
+                            </Tooltip>
+                            <a
+                              v-if="agent.pr"
+                              :href="agent.pr"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              class="text-[10px] text-primary hover:underline shrink-0"
+                              :title="agent.pr"
+                              @click.stop
+                            >PR</a>
+                          </div>
+                        </div>
+                      </SidebarMenuButton>
+                      <SidebarMenuBadge
+                        v-if="agent.phase"
+                        class="text-muted-foreground text-[10px]"
+                        :title="`Current phase: ${agent.phase}`"
+                      >
+                        {{ agent.phase }}
+                      </SidebarMenuBadge>
+                    </SidebarMenuItem>
+                  </SidebarMenu>
+                </SidebarGroupContent>
+              </CollapsibleContent>
+            </Collapsible>
           </CollapsibleContent>
         </Collapsible>
       </SidebarGroup>
