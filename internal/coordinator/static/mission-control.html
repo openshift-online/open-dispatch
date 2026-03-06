@@ -175,6 +175,60 @@ header h1 span{color:var(--blue);font-weight:400;margin-left:6px;font-size:14px}
 .inbox-reply-send:hover{background:rgba(210,153,34,.2);border-color:var(--yellow)}
 .inbox-reply-send:disabled{opacity:.4;cursor:not-allowed}
 
+.inbox-header-actions{display:flex;align-items:center;gap:8px}
+.inbox-email-btn{
+  background:none;border:1px solid rgba(210,153,34,.2);color:var(--yellow);
+  width:24px;height:24px;border-radius:4px;cursor:pointer;font-size:14px;
+  display:inline-flex;align-items:center;justify-content:center;padding:0;
+  transition:all .15s;line-height:1;
+}
+.inbox-email-btn:hover{background:rgba(210,153,34,.12);border-color:var(--yellow)}
+
+.agent-composer-overlay{
+  position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.6);
+  display:flex;align-items:center;justify-content:center;z-index:1000;
+}
+.agent-composer{
+  background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);
+  width:90%;max-width:500px;max-height:80vh;overflow:hidden;
+}
+.agent-composer-header{
+  padding:16px 20px;border-bottom:1px solid var(--border);
+  display:flex;align-items:center;justify-content:between;
+  background:var(--yellow-bg);color:var(--yellow);
+}
+.agent-composer-title{font-size:14px;font-weight:600;flex:1}
+.agent-composer-close{
+  background:none;border:none;color:var(--yellow);font-size:18px;
+  cursor:pointer;padding:0;width:24px;height:24px;
+}
+.agent-composer-body{padding:20px}
+.agent-selector{
+  width:100%;padding:8px 12px;border:1px solid var(--border2);border-radius:var(--radius-sm);
+  background:var(--bg);color:var(--text);font-size:14px;margin-bottom:12px;
+}
+.agent-selector:focus{border-color:var(--yellow);outline:none}
+.message-input{
+  width:100%;padding:12px;border:1px solid var(--border2);border-radius:var(--radius-sm);
+  background:var(--bg);color:var(--text);font-size:14px;font-family:inherit;
+  resize:vertical;min-height:100px;max-height:200px;
+}
+.message-input:focus{border-color:var(--yellow);outline:none}
+.message-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
+.message-send-btn{
+  padding:8px 16px;border-radius:var(--radius-sm);border:1px solid var(--yellow);
+  background:var(--yellow);color:var(--bg);font-size:14px;font-weight:600;
+  cursor:pointer;transition:all .15s;
+}
+.message-send-btn:hover{background:var(--bg);color:var(--yellow)}
+.message-send-btn:disabled{opacity:.5;cursor:not-allowed}
+.message-cancel-btn{
+  padding:8px 16px;border-radius:var(--radius-sm);border:1px solid var(--border2);
+  background:var(--bg);color:var(--text);font-size:14px;
+  cursor:pointer;transition:all .15s;
+}
+.message-cancel-btn:hover{border-color:var(--text);color:var(--text)}
+
 .blocker-item{
   padding:8px 12px;border-bottom:1px solid var(--border);display:flex;
   align-items:flex-start;gap:10px;font-size:12px;
@@ -738,6 +792,174 @@ function flushInbox(){
   }
 }
 
+function showAgentComposer(){
+  // Fetch all agents across all spaces
+  fetch('/spaces')
+    .then(function(r) { return r.json(); })
+    .then(function(spaces) {
+      var allAgents = [];
+      var fetchPromises = [];
+      
+      spaces.forEach(function(space) {
+        fetchPromises.push(
+          fetch('/spaces/' + encodeURIComponent(space.name) + '/api/agents')
+            .then(function(r) { return r.json(); })
+            .then(function(agents) {
+              Object.keys(agents).forEach(function(agentName) {
+                var agent = agents[agentName];
+                allAgents.push({
+                  name: agentName,
+                  space: space.name,
+                  status: agent.status || 'unknown',
+                  displayName: agentName + ' (' + space.name + ')',
+                  fullId: space.name + '/' + agentName
+                });
+              });
+            })
+            .catch(function(e) {
+              console.warn('Failed to fetch agents for space ' + space.name, e);
+            })
+        );
+      });
+      
+      return Promise.all(fetchPromises).then(function() {
+        return allAgents;
+      });
+    })
+    .then(function(allAgents) {
+      if (allAgents.length === 0) {
+        broadcastLog.push({time: new Date().toLocaleTimeString(), cls:'log-warn', msg:'No agents available to message'});
+        renderBroadcastLog();
+        return;
+      }
+      
+      // Sort agents by space then name
+      allAgents.sort(function(a, b) {
+        if (a.space !== b.space) return a.space.localeCompare(b.space);
+        return a.name.localeCompare(b.name);
+      });
+      
+      var overlay = document.createElement('div');
+      overlay.className = 'agent-composer-overlay';
+      overlay.onclick = function(e) { if (e.target === overlay) hideAgentComposer(); };
+      
+      var composer = '<div class="agent-composer">';
+      composer += '<div class="agent-composer-header">';
+      composer += '<div class="agent-composer-title">📧 Send Message to Agent</div>';
+      composer += '<button class="agent-composer-close" onclick="hideAgentComposer()">&times;</button>';
+      composer += '</div>';
+      composer += '<div class="agent-composer-body">';
+      composer += '<select class="agent-selector" id="agent-message-target">';
+      composer += '<option value="">Select an agent...</option>';
+      
+      var currentSpace = '';
+      allAgents.forEach(function(agent) {
+        if (agent.space !== currentSpace) {
+          if (currentSpace !== '') {
+            composer += '</optgroup>';
+          }
+          composer += '<optgroup label="📁 ' + esc(agent.space) + '">';
+          currentSpace = agent.space;
+        }
+        composer += '<option value="' + esc(agent.fullId) + '">' + esc(agent.name) + ' (' + agent.status + ')</option>';
+      });
+      if (currentSpace !== '') {
+        composer += '</optgroup>';
+      }
+      
+      composer += '</select>';
+      composer += '<textarea class="message-input" id="agent-message-content" placeholder="Type your message here...&#10;&#10;The agent will receive this message and can reply with ?BOSS to create an email dialogue."></textarea>';
+      composer += '<div class="message-actions">';
+      composer += '<button class="message-cancel-btn" onclick="hideAgentComposer()">Cancel</button>';
+      composer += '<button class="message-send-btn" onclick="sendAgentMessage()">Send Message</button>';
+      composer += '</div>';
+      composer += '</div>';
+      composer += '</div>';
+      
+      overlay.innerHTML = composer;
+      document.body.appendChild(overlay);
+      
+      // Focus the agent selector
+      setTimeout(function() {
+        var selector = document.getElementById('agent-message-target');
+        if (selector) selector.focus();
+      }, 100);
+    })
+    .catch(function(e) {
+      broadcastLog.push({time: new Date().toLocaleTimeString(), cls:'log-err', msg:'Failed to load agents: ' + e.message});
+      renderBroadcastLog();
+    });
+}
+
+function hideAgentComposer(){
+  var overlay = document.querySelector('.agent-composer-overlay');
+  if (overlay) {
+    document.body.removeChild(overlay);
+  }
+}
+
+function sendAgentMessage(){
+  var targetFullId = document.getElementById('agent-message-target').value;
+  var messageContent = document.getElementById('agent-message-content').value.trim();
+  var sendBtn = document.querySelector('.message-send-btn');
+  
+  if (!targetFullId) {
+    alert('Please select an agent');
+    return;
+  }
+  
+  if (!messageContent) {
+    alert('Please enter a message');
+    return;
+  }
+  
+  // Parse space/agent from fullId (format: "space/agent")
+  var parts = targetFullId.split('/');
+  if (parts.length !== 2) {
+    alert('Invalid agent selection format');
+    return;
+  }
+  
+  var targetSpace = parts[0];
+  var targetAgent = parts[1];
+  
+  if (sendBtn) {
+    sendBtn.disabled = true;
+    sendBtn.textContent = 'Sending...';
+  }
+  
+  fetch('/spaces/' + encodeURIComponent(targetSpace) + '/agent/' + encodeURIComponent(targetAgent) + '/message', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Agent-Name': 'Boss'
+    },
+    body: JSON.stringify({
+      message: messageContent,
+      sender: 'Boss',
+      timestamp: new Date().toISOString()
+    })
+  }).then(function(r) {
+    if (!r.ok) return r.text().then(function(t){ throw new Error(t); });
+    return r.json();
+  }).then(function(data) {
+    broadcastLog.push({
+      time: new Date().toLocaleTimeString(), 
+      cls:'log-ok', 
+      msg:'Message sent to ' + targetAgent + ' (' + targetSpace + '): ' + messageContent.substring(0, 50) + (messageContent.length > 50 ? '...' : '')
+    });
+    renderBroadcastLog();
+    hideAgentComposer();
+  }).catch(function(e) {
+    broadcastLog.push({time: new Date().toLocaleTimeString(), cls:'log-err', msg:'Failed to send message to ' + targetAgent + ' (' + targetSpace + '): ' + e.message});
+    renderBroadcastLog();
+    if (sendBtn) {
+      sendBtn.disabled = false;
+      sendBtn.textContent = 'Send Message';
+    }
+  });
+}
+
 function pokeAgent(agentName, btnEl){
   if (btnEl){ btnEl.disabled = true; btnEl.textContent = '...'; }
   broadcastLog.push({time: new Date().toLocaleTimeString(), cls:'log-info', msg:'Poking ' + agentName + '...'});
@@ -1270,7 +1492,10 @@ function renderPanelInbox(data, sorted){
     o += '<div class="card boss-inbox">';
     o += '<div class="card-header"><span class="card-title">Inbox</span>';
     var inboxCount = allQuestions.length + allBlockers.length;
+    o += '<div class="inbox-header-actions">';
+    o += '<button class="inbox-email-btn" onclick="showAgentComposer()" title="Send message to agent">📧</button>';
     o += '<span class="card-badge" style="background:var(--yellow-bg);color:var(--yellow);border:1px solid rgba(210,153,34,.2)">' + inboxCount + '</span>';
+    o += '</div>';
     o += '</div>';
     o += '<div class="card-body" style="padding:0;max-height:260px;overflow-y:auto">';
     allBlockers.forEach(function(b, bIdx){
@@ -1299,7 +1524,11 @@ function renderPanelInbox(data, sorted){
     o += '</div></div>';
   } else {
     o += '<div class="card">';
-    o += '<div class="card-header"><span class="card-title">Inbox</span></div>';
+    o += '<div class="card-header"><span class="card-title">Inbox</span>';
+    o += '<div class="inbox-header-actions">';
+    o += '<button class="inbox-email-btn" onclick="showAgentComposer()" title="Send message to agent">📧</button>';
+    o += '</div>';
+    o += '</div>';
     o += '<div class="card-body"><div style="color:var(--text3);font-size:12px;font-style:italic;text-align:center;padding:20px 0">No questions or blockers</div></div>';
     o += '</div>';
   }

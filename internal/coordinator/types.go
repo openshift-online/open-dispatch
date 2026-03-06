@@ -57,8 +57,9 @@ type AgentUpdate struct {
 	FreeText     string      `json:"free_text,omitempty"`
 	Documents    []AgentDocument `json:"documents,omitempty"`
 	TmuxSession  string      `json:"tmux_session,omitempty"`
-	RepoURL      string      `json:"repo_url,omitempty"`
-	UpdatedAt    time.Time   `json:"updated_at"`
+	RepoURL      string         `json:"repo_url,omitempty"`
+	Messages     []AgentMessage `json:"messages,omitempty"`
+	UpdatedAt    time.Time      `json:"updated_at"`
 }
 
 type Section struct {
@@ -71,6 +72,13 @@ type AgentDocument struct {
 	Slug    string `json:"slug"`
 	Title   string `json:"title"`
 	Content string `json:"content"`
+}
+
+type AgentMessage struct {
+	ID        string    `json:"id"`
+	Message   string    `json:"message"`
+	Sender    string    `json:"sender"`
+	Timestamp time.Time `json:"timestamp"`
 }
 
 type Table struct {

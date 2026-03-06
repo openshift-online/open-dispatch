@@ -380,9 +380,15 @@ func (s *Server) handleSpaceRoute(w http.ResponseWriter, r *http.Request) {
 		}
 		agentName := parts[2]
 		if len(parts) >= 4 {
-			// Handle document path: /spaces/{space}/agent/{agent}/{slug}
-			documentSlug := strings.TrimRight(parts[3], "/")
-			s.handleAgentDocument(w, r, spaceName, agentName, documentSlug)
+			// Handle sub-routes: /spaces/{space}/agent/{agent}/{action}
+			action := strings.TrimRight(parts[3], "/")
+			switch action {
+			case "message":
+				s.handleAgentMessage(w, r, spaceName, agentName)
+			default:
+				// Handle document path: /spaces/{space}/agent/{agent}/{slug}
+				s.handleAgentDocument(w, r, spaceName, agentName, action)
+			}
 		} else {
 			// Handle agent updates: /spaces/{space}/agent/{agent}
 			agentName = strings.TrimRight(agentName, "/")
@@ -740,6 +746,113 @@ func (s *Server) handleSpaceAgent(w http.ResponseWriter, r *http.Request, spaceN
 	}
 }
 
+func (s *Server) handleAgentMessage(w http.ResponseWriter, r *http.Request, spaceName, agentName string) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	agentName = strings.TrimRight(agentName, "/")
+	
+	// Sender authentication - require X-Agent-Name header
+	senderName := r.Header.Get("X-Agent-Name")
+	if senderName == "" {
+		http.Error(w, "missing X-Agent-Name header: sender must identify themselves", http.StatusBadRequest)
+		return
+	}
+
+	var messageReq AgentMessage
+	if err := json.NewDecoder(r.Body).Decode(&messageReq); err != nil {
+		http.Error(w, fmt.Sprintf("decode: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	// Validate required fields
+	if strings.TrimSpace(messageReq.Message) == "" {
+		http.Error(w, "message content is required", http.StatusBadRequest)
+		return
+	}
+
+	// Sanitize and set message properties
+	messageReq.ID = fmt.Sprintf("%d", time.Now().UnixNano())
+	messageReq.Message = strings.TrimSpace(messageReq.Message)
+	messageReq.Sender = senderName
+	messageReq.Timestamp = time.Now().UTC()
+
+	ks, ok := s.getSpace(spaceName)
+	if !ok {
+		// Create space if it doesn't exist for messages
+		ks = &KnowledgeSpace{
+			Name:      spaceName,
+			Agents:    make(map[string]*AgentUpdate),
+			UpdatedAt: time.Now().UTC(),
+		}
+		s.mu.Lock()
+		s.spaces[spaceName] = ks
+		s.mu.Unlock()
+	}
+
+	canonical := resolveAgentName(ks, agentName)
+	
+	s.mu.Lock()
+	agent, exists := ks.Agents[canonical]
+	if !exists {
+		// Create agent record if it doesn't exist
+		agent = &AgentUpdate{
+			Status:    StatusIdle,
+			Summary:   fmt.Sprintf("%s: pending message delivery", canonical),
+			Messages:  []AgentMessage{},
+			UpdatedAt: time.Now().UTC(),
+		}
+		ks.Agents[canonical] = agent
+	}
+
+	// Add message to agent's inbox
+	if agent.Messages == nil {
+		agent.Messages = []AgentMessage{}
+	}
+	agent.Messages = append(agent.Messages, messageReq)
+	
+	// Limit message history to last 50 messages
+	if len(agent.Messages) > 50 {
+		agent.Messages = agent.Messages[len(agent.Messages)-50:]
+	}
+	
+	ks.UpdatedAt = time.Now().UTC()
+	if err := s.saveSpace(ks); err != nil {
+		s.mu.Unlock()
+		http.Error(w, fmt.Sprintf("save: %v", err), http.StatusInternalServerError)
+		return
+	}
+	s.mu.Unlock()
+
+	// Log the message event
+	s.logEvent(fmt.Sprintf("[%s/%s] Message from %s: %s", spaceName, canonical, senderName, 
+		func() string {
+			if len(messageReq.Message) > 50 {
+				return messageReq.Message[:47] + "..."
+			}
+			return messageReq.Message
+		}()))
+
+	// Broadcast SSE event for real-time updates
+	sseData, _ := json.Marshal(map[string]interface{}{
+		"space":  spaceName,
+		"agent":  canonical,
+		"sender": senderName,
+		"message": messageReq.Message,
+	})
+	s.broadcastSSE(spaceName, "agent_message", string(sseData))
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status": "delivered",
+		"messageId": messageReq.ID,
+		"recipient": canonical,
+	})
+}
+
 func (s *Server) handleAgentDocument(w http.ResponseWriter, r *http.Request, spaceName, agentName, documentSlug string) {
 	agentName = strings.TrimRight(agentName, "/")
 	
@@ -1015,7 +1128,7 @@ func (s *Server) handleBroadcast(w http.ResponseWriter, r *http.Request, spaceNa
 	}
 
 	go func() {
-		result := s.BroadcastCheckIn(spaceName, commandType)
+		result := s.BroadcastCheckIn(spaceName, "", "")
 		sseData, _ := json.Marshal(result)
 		s.broadcastSSE(spaceName, "broadcast_complete", string(sseData))
 	}()
@@ -1036,7 +1149,7 @@ func (s *Server) handleSingleBroadcast(w http.ResponseWriter, r *http.Request, s
 	}
 
 	go func() {
-		result := s.SingleAgentCheckIn(spaceName, agentName, commandType)
+		result := s.SingleAgentCheckIn(spaceName, agentName, "", "")
 		sseData, _ := json.Marshal(result)
 		s.broadcastSSE(spaceName, "broadcast_complete", string(sseData))
 	}()
