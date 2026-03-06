@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { KnowledgeSpace, TmuxAgentStatus } from '@/types'
 import { ref, computed, nextTick, watch } from 'vue'
+import { useTime } from '@/composables/useTime'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -94,34 +95,7 @@ function sendQuickMessage() {
   messageText.value = ''
 }
 
-/** Returns a relative time string like "3m ago" */
-function relativeTime(dateStr: string): string {
-  const now = Date.now()
-  const then = new Date(dateStr).getTime()
-  const diff = now - then
-  if (diff < 0) return 'just now'
-  const seconds = Math.floor(diff / 1000)
-  if (seconds < 60) return `${seconds}s ago`
-  const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `${minutes}m ago`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
-  const days = Math.floor(hours / 24)
-  return `${days}d ago`
-}
-
-function formatFullDate(dateStr: string): string {
-  return new Date(dateStr).toLocaleString()
-}
-
-/** Returns freshness tier for visual indicator */
-function freshness(dateStr: string): 'live' | 'recent' | 'normal' | 'stale' {
-  const diff = Date.now() - new Date(dateStr).getTime()
-  if (diff < 60_000) return 'live'     // < 1 min
-  if (diff < 300_000) return 'recent'  // < 5 min
-  if (diff < 1_800_000) return 'normal' // < 30 min
-  return 'stale'
-}
+const { relativeTime, formatFullDate, freshness } = useTime()
 
 function handleCardKeydown(e: KeyboardEvent, name: string) {
   const tag = (e.target as HTMLElement)?.tagName
