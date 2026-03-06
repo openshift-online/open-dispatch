@@ -32,6 +32,7 @@ type sseClient struct {
 type Server struct {
 	port            string
 	dataDir         string
+	frontendDir     string
 	spaces          map[string]*KnowledgeSpace
 	mu              sync.RWMutex
 	httpServer      *http.Server
@@ -68,6 +69,14 @@ func NewServer(port, dataDir string) *Server {
 		nudgePending:    make(map[string]time.Time),
 		nudgeInFlight:   make(map[string]bool),
 	}
+}
+
+// SetFrontendDir configures the server to serve a Vue SPA from the given
+// directory (typically frontend/dist). When set and the directory exists,
+// the root "/" serves index.html from that directory and /assets/ serves
+// Vite-built static files. When empty, the legacy mission-control.html is used.
+func (s *Server) SetFrontendDir(dir string) {
+	s.frontendDir = dir
 }
 
 func (s *Server) Running() bool {
@@ -122,9 +131,16 @@ func (s *Server) Start() error {
 
 	mux.HandleFunc("/", s.handleRoot)
 	mux.HandleFunc("/mc2", s.handleMC2)
-	// Static file server for CSS, JS, etc.
+	// Static file server for CSS, JS, etc. (legacy dashboard)
 	mux.Handle("/css/", http.StripPrefix("/", http.FileServer(http.Dir("internal/coordinator/static"))))
 	mux.Handle("/js/", http.StripPrefix("/", http.FileServer(http.Dir("internal/coordinator/static"))))
+
+	// Serve Vue frontend assets when frontendDir is configured
+	if s.frontendDir != "" {
+		if info, err := os.Stat(s.frontendDir); err == nil && info.IsDir() {
+			mux.Handle("/assets/", http.FileServer(http.Dir(s.frontendDir)))
+		}
+	}
 	mux.HandleFunc("/spaces", s.handleListSpaces)
 	mux.HandleFunc("/spaces/", s.handleSpaceRoute)
 	mux.HandleFunc("/events", s.handleSSE)
@@ -306,6 +322,21 @@ func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	// Serve Vue SPA index.html when frontendDir is configured and exists
+	if s.frontendDir != "" {
+		indexPath := filepath.Join(s.frontendDir, "index.html")
+		if _, err := os.Stat(indexPath); err == nil {
+			content, err := os.ReadFile(indexPath)
+			if err != nil {
+				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.Write(content)
+			return
+		}
+	}
+	// Fallback to legacy dashboard
 	s.serveHTMLFile(w, r, "mission-control.html")
 }
 
@@ -324,20 +355,26 @@ func (s *Server) handleListSpaces(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type spaceSummary struct {
-		Name       string    `json:"name"`
-		AgentCount int       `json:"agent_count"`
-		CreatedAt  time.Time `json:"created_at"`
-		UpdatedAt  time.Time `json:"updated_at"`
+		Name           string    `json:"name"`
+		AgentCount     int       `json:"agent_count"`
+		AttentionCount int       `json:"attention_count"`
+		CreatedAt      time.Time `json:"created_at"`
+		UpdatedAt      time.Time `json:"updated_at"`
 	}
 
 	s.mu.RLock()
 	summaries := make([]spaceSummary, 0, len(s.spaces))
 	for _, ks := range s.spaces {
+		attention := 0
+		for _, agent := range ks.Agents {
+			attention += len(agent.Questions) + len(agent.Blockers)
+		}
 		summaries = append(summaries, spaceSummary{
-			Name:       ks.Name,
-			AgentCount: len(ks.Agents),
-			CreatedAt:  ks.CreatedAt,
-			UpdatedAt:  ks.UpdatedAt,
+			Name:           ks.Name,
+			AgentCount:     len(ks.Agents),
+			AttentionCount: attention,
+			CreatedAt:      ks.CreatedAt,
+			UpdatedAt:      ks.UpdatedAt,
 		})
 	}
 	s.mu.RUnlock()
@@ -843,13 +880,7 @@ func (s *Server) handleAgentMessage(w http.ResponseWriter, r *http.Request, spac
 	s.mu.Unlock()
 
 	// Log the message event
-	s.logEvent(fmt.Sprintf("[%s/%s] Message from %s: %s", spaceName, canonical, senderName,
-		func() string {
-			if len(messageReq.Message) > 50 {
-				return messageReq.Message[:47] + "..."
-			}
-			return messageReq.Message
-		}()))
+	s.logEvent(fmt.Sprintf("[%s/%s] Message from %s: %s", spaceName, canonical, senderName, messageReq.Message))
 
 	// Broadcast SSE event for real-time updates
 	sseData, _ := json.Marshal(map[string]interface{}{
@@ -1063,7 +1094,17 @@ func (s *Server) handleIgnition(w http.ResponseWriter, r *http.Request, spaceNam
 
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("# Agent Ignition: %s\n\n", agentName))
-	b.WriteString(fmt.Sprintf("You are **%s**, an agent working in workspace **%s**.\n\n", agentName, spaceName))
+	b.WriteString(fmt.Sprintf("You are **%s**, an autonomous AI agent working in workspace **%s**.\n\n", agentName, spaceName))
+
+	b.WriteString("## Operating Mode\n\n")
+	b.WriteString("**You are running autonomously. There is no human at this terminal.**\n\n")
+	b.WriteString("- You do NOT have a conversational partner. Do not ask questions like \"Shall I...?\" or wait for confirmation.\n")
+	b.WriteString("- Messages from other agents or the boss are **instructions to act on immediately**, not conversation starters.\n")
+	b.WriteString("- Your ONLY means of communication is through `curl` commands to the coordinator API (described below).\n")
+	b.WriteString("- When you receive a new task via messages, **start working on it immediately** — do not ask for permission.\n")
+	b.WriteString("- If you need a decision from the boss, post a question tagged `[?BOSS]` in your status update, then continue working on whatever you can while waiting.\n")
+	b.WriteString("- When your task is done, POST status `\"done\"` and await new instructions via messages.\n")
+	b.WriteString("\n")
 
 	b.WriteString("## Coordinator\n\n")
 	b.WriteString(fmt.Sprintf("- Boss URL: `http://localhost%s`\n", s.port))
@@ -1086,7 +1127,8 @@ func (s *Server) handleIgnition(w http.ResponseWriter, r *http.Request, spaceNam
 	} else {
 		b.WriteString("5. **Register your tmux session.** Include `\"tmux_session\"` in your first POST. Find it with `tmux display-message -p '#S'`. It is sticky — you only need to send it once.\n")
 	}
-	b.WriteString(fmt.Sprintf("6. **Check your messages.** When you read `/raw`, look for a `#### Messages` section under your agent name. These are messages from the boss or other agents. Acknowledge them in your status POST and act on any instructions. To send a message to another agent: `curl -s -X POST http://localhost%s/spaces/%s/agent/{target}/message -H 'Content-Type: application/json' -H 'X-Agent-Name: %s' -d '{\"message\": \"...\"}'`\n", s.port, spaceName, agentName))
+	b.WriteString(fmt.Sprintf("6. **Check your messages.** When you read `/raw`, look for a `#### Messages` section under your agent name. Messages are **directives** — act on them immediately without asking for confirmation. To send a message to another agent: `curl -s -X POST http://localhost%s/spaces/%s/agent/{target}/message -H 'Content-Type: application/json' -H 'X-Agent-Name: %s' -d '{\"message\": \"...\"}'`\n", s.port, spaceName, agentName))
+	b.WriteString("7. **Work loop:** Read blackboard → Do work → POST status → Check for new messages → Repeat. Do not stop and wait for human input.\n")
 	b.WriteString("\n")
 
 	b.WriteString("## Peer Agents\n\n")
@@ -1123,7 +1165,7 @@ func (s *Server) handleIgnition(w http.ResponseWriter, r *http.Request, spaceNam
 
 		if len(existing.Messages) > 0 {
 			b.WriteString("## Pending Messages\n\n")
-			b.WriteString("**You have unread messages. Read and act on them.**\n\n")
+			b.WriteString("**You have unread messages. These are instructions — act on them immediately. Do not ask for confirmation.**\n\n")
 			for _, msg := range existing.Messages {
 				b.WriteString(fmt.Sprintf("- **%s** (%s): %s\n",
 					msg.Sender, msg.Timestamp.Format("15:04"), msg.Message))
@@ -1212,7 +1254,7 @@ func (s *Server) handleSpaceEventsJSON(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	events := s.RecentEvents(50)
+	events := s.RecentEvents(200)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(events)
 }
@@ -1671,16 +1713,39 @@ func (s *Server) recordDecisionInterrupts(spaceName, agentName string, update *A
 }
 
 func (s *Server) handleInterrupts(w http.ResponseWriter, r *http.Request, spaceName string) {
-	if r.Method != http.MethodGet {
+	switch r.Method {
+	case http.MethodGet:
+		interrupts := s.interrupts.LoadAll(spaceName)
+		if interrupts == nil {
+			interrupts = []Interrupt{}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(interrupts)
+	case http.MethodPost:
+		// Resolve a specific interrupt by ID.
+		var payload struct {
+			ID         string `json:"id"`
+			Answer     string `json:"answer"`
+			ResolvedBy string `json:"resolved_by"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil || payload.ID == "" {
+			http.Error(w, "body must contain {id, answer}", http.StatusBadRequest)
+			return
+		}
+		by := payload.ResolvedBy
+		if by == "" {
+			by = "human"
+		}
+		if err := s.interrupts.Resolve(spaceName, payload.ID, by, payload.Answer); err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		s.logEvent(fmt.Sprintf("[%s] interrupt %s resolved by %s", spaceName, payload.ID, by))
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "resolved", "id": payload.ID})
+	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
 	}
-	interrupts := s.interrupts.LoadAll(spaceName)
-	if interrupts == nil {
-		interrupts = []Interrupt{}
-	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(interrupts)
 }
 
 func (s *Server) handleInterruptMetrics(w http.ResponseWriter, r *http.Request, spaceName string) {

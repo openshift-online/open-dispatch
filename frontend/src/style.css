@@ -1,0 +1,362 @@
+/* Red Hat font family from Google Fonts */
+@import url('https://fonts.googleapis.com/css2?family=Red+Hat+Display:ital,wght@0,300..900;1,300..900&family=Red+Hat+Text:ital,wght@0,300..700;1,300..700&family=Red+Hat+Mono:ital,wght@0,300..700;1,300..700&display=swap');
+
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-sans: 'Red Hat Display', 'Red Hat Text', system-ui, sans-serif;
+  --font-text: 'Red Hat Text', 'Red Hat Display', system-ui, sans-serif;
+  --font-mono: 'Red Hat Mono', ui-monospace, monospace;
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  /* Status colors following Red Hat information palette */
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+/*
+  Red Hat branded color system
+  Primary: #ee0000 (Red Hat red)
+  Following Red Hat brand guidelines:
+  - Red for brand identity (never for negative things)
+  - danger-orange for errors/failures
+  - success-green for positive outcomes
+  - teal for neutral/general info
+  - purple for tips/notes
+*/
+
+/* Light mode */
+:root {
+  --radius: 0.5rem;
+
+  /* Core - white background with dark text */
+  --background: oklch(0.985 0 0);
+  --foreground: oklch(0.145 0 0);
+
+  /* Cards - slightly off-white */
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+
+  /* Popovers */
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+
+  /* Primary - Red Hat red #ee0000 */
+  --primary: oklch(0.5908 0.2572 27.42);
+  --primary-foreground: oklch(1 0 0);
+
+  /* Secondary - neutral gray */
+  --secondary: oklch(0.965 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+
+  /* Muted */
+  --muted: oklch(0.965 0 0);
+  --muted-foreground: oklch(0.48 0 0);
+
+  /* Accent - light warm tint */
+  --accent: oklch(0.965 0.008 27);
+  --accent-foreground: oklch(0.205 0 0);
+
+  /* Destructive - danger-orange per Red Hat guidelines (not red!) */
+  --destructive: oklch(0.637 0.206 25);
+
+  /* Borders and inputs */
+  --border: oklch(0.908 0 0);
+  --input: oklch(0.908 0 0);
+  --ring: oklch(0.5908 0.2572 27.42);
+
+  /* Chart colors using Red Hat secondary palette */
+  --chart-1: oklch(0.5908 0.2572 27.42);
+  --chart-2: oklch(0.637 0.135 163);
+  --chart-3: oklch(0.555 0.16 255);
+  --chart-4: oklch(0.795 0.184 86);
+  --chart-5: oklch(0.685 0.198 303);
+
+  /* Status colors - Red Hat information palette */
+  --success: oklch(0.565 0.155 155);
+  --success-foreground: oklch(1 0 0);
+  --warning: oklch(0.795 0.184 86);
+  --warning-foreground: oklch(0.205 0 0);
+  --info: oklch(0.637 0.135 163);
+  --info-foreground: oklch(1 0 0);
+
+  /* Sidebar */
+  --sidebar: oklch(0.975 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.5908 0.2572 27.42);
+  --sidebar-primary-foreground: oklch(1 0 0);
+  --sidebar-accent: oklch(0.965 0.008 27);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.908 0 0);
+  --sidebar-ring: oklch(0.5908 0.2572 27.42);
+}
+
+/* Dark mode - default for ops dashboard */
+.dark {
+  /* Core - dark background */
+  --background: oklch(0.155 0 0);
+  --foreground: oklch(0.965 0 0);
+
+  /* Cards - slightly lighter than background */
+  --card: oklch(0.195 0 0);
+  --card-foreground: oklch(0.965 0 0);
+
+  /* Popovers */
+  --popover: oklch(0.195 0 0);
+  --popover-foreground: oklch(0.965 0 0);
+
+  /* Primary - Red Hat red, slightly brighter for dark bg */
+  --primary: oklch(0.6308 0.2572 27.42);
+  --primary-foreground: oklch(1 0 0);
+
+  /* Secondary */
+  --secondary: oklch(0.255 0 0);
+  --secondary-foreground: oklch(0.965 0 0);
+
+  /* Muted */
+  --muted: oklch(0.255 0 0);
+  --muted-foreground: oklch(0.65 0 0);
+
+  /* Accent */
+  --accent: oklch(0.255 0.008 27);
+  --accent-foreground: oklch(0.965 0 0);
+
+  /* Destructive */
+  --destructive: oklch(0.704 0.191 25);
+
+  /* Borders and inputs */
+  --border: oklch(1 0 0 / 12%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.6308 0.2572 27.42);
+
+  /* Charts */
+  --chart-1: oklch(0.6308 0.2572 27.42);
+  --chart-2: oklch(0.696 0.17 163);
+  --chart-3: oklch(0.588 0.19 255);
+  --chart-4: oklch(0.828 0.189 86);
+  --chart-5: oklch(0.727 0.218 303);
+
+  /* Status colors */
+  --success: oklch(0.648 0.17 155);
+  --success-foreground: oklch(1 0 0);
+  --warning: oklch(0.828 0.189 86);
+  --warning-foreground: oklch(0.145 0 0);
+  --info: oklch(0.696 0.17 163);
+  --info-foreground: oklch(1 0 0);
+
+  /* Sidebar */
+  --sidebar: oklch(0.175 0 0);
+  --sidebar-foreground: oklch(0.965 0 0);
+  --sidebar-primary: oklch(0.6308 0.2572 27.42);
+  --sidebar-primary-foreground: oklch(1 0 0);
+  --sidebar-accent: oklch(0.255 0.008 27);
+  --sidebar-accent-foreground: oklch(0.965 0 0);
+  --sidebar-border: oklch(1 0 0 / 12%);
+  --sidebar-ring: oklch(0.6308 0.2572 27.42);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+    transition: color 150ms ease, background-color 150ms ease, border-color 150ms ease, box-shadow 150ms ease, opacity 150ms ease;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+  }
+  code, pre, .font-mono {
+    font-family: 'Red Hat Mono', ui-monospace, monospace;
+  }
+
+  /* Focus-visible ring glow animation */
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+    animation: focus-ring-glow 1.5s ease-in-out infinite;
+  }
+
+  /* Dark mode scrollbar */
+  .dark ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .dark ::-webkit-scrollbar-track {
+    background: oklch(0.175 0 0);
+  }
+  .dark ::-webkit-scrollbar-thumb {
+    background: oklch(0.35 0 0);
+    border-radius: 4px;
+  }
+  .dark ::-webkit-scrollbar-thumb:hover {
+    background: oklch(0.45 0 0);
+  }
+  .dark {
+    scrollbar-color: oklch(0.35 0 0) oklch(0.175 0 0);
+    scrollbar-width: thin;
+  }
+}
+
+@keyframes focus-ring-glow {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in oklch, var(--ring) 40%, transparent); }
+  50%       { box-shadow: 0 0 0 4px color-mix(in oklch, var(--ring) 20%, transparent); }
+}
+
+/* Markdown content rendering — used with v-html for agent messages, summaries, etc. */
+.md-content {
+  /* Block-level markdown */
+}
+.md-content > * + * {
+  margin-top: 0.5em;
+}
+.md-content p {
+  line-height: 1.6;
+}
+.md-content ul {
+  list-style-type: disc;
+  padding-left: 1.4rem;
+}
+.md-content ol {
+  list-style-type: decimal;
+  padding-left: 1.4rem;
+}
+.md-content li {
+  margin-top: 0.2em;
+  line-height: 1.5;
+}
+.md-content li > p {
+  margin-top: 0;
+}
+.md-content code {
+  font-family: var(--font-mono);
+  font-size: 0.82em;
+  background: oklch(0 0 0 / 10%);
+  padding: 0.1em 0.35em;
+  border-radius: 3px;
+}
+.dark .md-content code {
+  background: oklch(1 0 0 / 8%);
+}
+.md-content pre {
+  background: oklch(0 0 0 / 8%);
+  border: 1px solid oklch(0 0 0 / 12%);
+  border-radius: 6px;
+  padding: 0.6em 0.8em;
+  overflow-x: auto;
+  margin: 0.5em 0;
+}
+.dark .md-content pre {
+  background: oklch(1 0 0 / 5%);
+  border-color: oklch(1 0 0 / 10%);
+}
+.md-content pre code {
+  background: none;
+  padding: 0;
+  font-size: 0.8em;
+}
+.md-content blockquote {
+  border-left: 3px solid oklch(0 0 0 / 20%);
+  padding-left: 0.75em;
+  color: oklch(0 0 0 / 60%);
+  font-style: italic;
+  margin: 0.5em 0;
+}
+.dark .md-content blockquote {
+  border-left-color: oklch(1 0 0 / 25%);
+  color: oklch(1 0 0 / 55%);
+}
+.md-content h1, .md-content h2, .md-content h3,
+.md-content h4, .md-content h5, .md-content h6 {
+  font-weight: 600;
+  line-height: 1.3;
+  margin-top: 0.75em;
+}
+.md-content h1 { font-size: 1.15em; }
+.md-content h2 { font-size: 1.05em; }
+.md-content h3, .md-content h4, .md-content h5, .md-content h6 { font-size: 1em; }
+.md-content a {
+  color: var(--color-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.md-content a:hover {
+  opacity: 0.8;
+}
+.md-content hr {
+  border: none;
+  border-top: 1px solid oklch(0 0 0 / 12%);
+  margin: 0.75em 0;
+}
+.dark .md-content hr {
+  border-top-color: oklch(1 0 0 / 12%);
+}
+.md-content strong { font-weight: 600; }
+.md-content em { font-style: italic; }
+.md-content del, .md-content s { text-decoration: line-through; opacity: 0.7; }
+
+/* Inline-only markdown (list items, short text) */
+.md-content-inline code {
+  font-family: var(--font-mono);
+  font-size: 0.82em;
+  background: oklch(0 0 0 / 10%);
+  padding: 0.1em 0.35em;
+  border-radius: 3px;
+}
+.dark .md-content-inline code {
+  background: oklch(1 0 0 / 8%);
+}
+.md-content-inline strong { font-weight: 600; }
+.md-content-inline em { font-style: italic; }
+
+/* Card hover lift utility */
+.card-hover {
+  transition: transform 150ms ease, box-shadow 150ms ease;
+}
+.card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px oklch(0 0 0 / 20%);
+}
+.dark .card-hover:hover {
+  box-shadow: 0 8px 24px oklch(0 0 0 / 45%);
+}

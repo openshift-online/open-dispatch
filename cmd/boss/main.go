@@ -54,7 +54,7 @@ Commands:
   spaces                    List all spaces
   delete                    Delete a space or agent
   ignite                    Generate ignition prompt for an agent
-  broadcast                 Trigger boss-check broadcast for a space
+  broadcast                 Trigger boss.check broadcast for a space
 
 Examples:
   boss serve
@@ -71,6 +71,7 @@ Environment:
   BOSS_URL          Server URL (default: http://localhost:8899)
   COORDINATOR_PORT  Server port (serve only, default: 8899)
   DATA_DIR          Data directory (serve only, default: ./data)
+  FRONTEND_DIR      Vue frontend dist directory (serve only, optional)
 `)
 }
 
@@ -101,6 +102,13 @@ func cmdServe(args []string) {
 	}
 
 	srv := coordinator.NewServer(port, dataDir)
+
+	if frontendDir := os.Getenv("FRONTEND_DIR"); frontendDir != "" {
+		absDir, _ := filepath.Abs(frontendDir)
+		srv.SetFrontendDir(absDir)
+		fmt.Printf("boss: serving Vue frontend from %s\n", absDir)
+	}
+
 	if err := srv.Start(); err != nil {
 		log.Fatalf("boss: failed to start coordinator: %v", err)
 	}

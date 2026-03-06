@@ -1049,100 +1049,6 @@ func TestDeleteSpaceCleansUpFiles(t *testing.T) {
 	}
 }
 
-func TestLineIsIdleIndicator(t *testing.T) {
-	tests := []struct {
-		name string
-		line string
-		want bool
-	}{
-		// Claude Code prompt (exact ">" inside box-drawing)
-		{"claude code prompt bare", "│ > │", true},
-		{"claude code prompt no box", ">", true},
-		{"claude code prompt with space", "> ", true},
-		{"claude code prompt inner space", "│ >  │", true},
-
-		// Shell prompts
-		{"bash dollar", "user@host:~/code$ ", true},
-		{"bare dollar", "$", true},
-		{"zsh percent", "% ", true},
-		{"root hash", "root@box:/# ", true},
-		{"fish prompt", "~/code ❯ ", true},
-		{"angle bracket prompt", ">>> ", true},
-
-		// Claude Code prompt with auto-suggestion
-		{"claude code prompt bare chevron", "❯", true},
-		{"claude code prompt with suggestion", "❯ give me something to work on", true},
-		{"claude code prompt chevron space", "❯ ", true},
-
-		// Claude Code / opencode hint lines
-		{"shortcuts hint", "? for shortcuts", true},
-		{"auto-compact", "  auto-compact enabled", true},
-		{"auto-accept", "  auto-accept on", true},
-
-		// Claude Code status bar (vim mode)
-		{"insert mode", "  -- INSERT -- ⏵⏵ bypass permissions on (shift+tab to cycle)                                             current: 2.1.70 · latest: 2.1.70", true},
-		{"normal mode", "  -- NORMAL --                                                                                            current: 2.1.70 · latest: 2.1.70", true},
-
-		// OpenCode status bar
-		{"opencode status bar", "                                  ctrl+t variants  tab agents  ctrl+p commands    • OpenCode 1.2.17", true},
-
-		// OpenCode / generic idle keywords
-		{"waiting for input", "Waiting for input...", true},
-		{"ready", "Ready", true},
-		{"type a message", "Type a message to begin", true},
-
-		// Busy indicators — should NOT match
-		{"running command output", "Building project...", false},
-		{"file content", "func main() {", false},
-		{"progress bar", "[=====>    ] 50%", false},
-		{"error output", "Error: file not found", false},
-		{"git diff line", "+++ b/file.go", false},
-		{"empty string", "", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := lineIsIdleIndicator(tt.line)
-			if got != tt.want {
-				t.Errorf("lineIsIdleIndicator(%q) = %v, want %v", tt.line, got, tt.want)
-			}
-		})
-	}
-}
-
-func TestIsShellPrompt(t *testing.T) {
-	tests := []struct {
-		line string
-		want bool
-	}{
-		{"$", true},
-		{"$ ", true},
-		{"user@host:~$ ", true},
-		{"%", true},
-		{"zsh% ", true},
-		{">", true},
-		{">>> ", true},
-		{"#", true},
-		{"root@box:/# ", true},
-		{"~/code ❯ ", true},
-		{"❯", true},
-		// Not prompts
-		{"", false},
-		{"hello world", false},
-		{"func main() {", false},
-		{"Building...", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.line, func(t *testing.T) {
-			got := isShellPrompt(tt.line)
-			if got != tt.want {
-				t.Errorf("isShellPrompt(%q) = %v, want %v", tt.line, got, tt.want)
-			}
-		})
-	}
-}
-
 // ── Message system tests ──────────────────────────────────────────────
 
 func postMessage(t *testing.T, baseURL, space, agent, sender, message string) *http.Response {
@@ -1523,5 +1429,99 @@ func TestIgnitionShowsPendingMessages(t *testing.T) {
 	}
 	if !strings.Contains(body, "**boss**") {
 		t.Error("ignition should show the message sender")
+	}
+}
+
+func TestLineIsIdleIndicator(t *testing.T) {
+	tests := []struct {
+		name string
+		line string
+		want bool
+	}{
+		// Claude Code prompt (exact ">" inside box-drawing)
+		{"claude code prompt bare", "│ > │", true},
+		{"claude code prompt no box", ">", true},
+		{"claude code prompt with space", "> ", true},
+		{"claude code prompt inner space", "│ >  │", true},
+
+		// Shell prompts
+		{"bash dollar", "user@host:~/code$ ", true},
+		{"bare dollar", "$", true},
+		{"zsh percent", "% ", true},
+		{"root hash", "root@box:/# ", true},
+		{"fish prompt", "~/code ❯ ", true},
+		{"angle bracket prompt", ">>> ", true},
+
+		// Claude Code prompt with auto-suggestion
+		{"claude code prompt bare chevron", "❯", true},
+		{"claude code prompt with suggestion", "❯ give me something to work on", true},
+		{"claude code prompt chevron space", "❯ ", true},
+
+		// Claude Code / opencode hint lines
+		{"shortcuts hint", "? for shortcuts", true},
+		{"auto-compact", "  auto-compact enabled", true},
+		{"auto-accept", "  auto-accept on", true},
+
+		// Claude Code status bar (vim mode)
+		{"insert mode", "  -- INSERT -- ⏵⏵ bypass permissions on (shift+tab to cycle)                                             current: 2.1.70 · latest: 2.1.70", true},
+		{"normal mode", "  -- NORMAL --                                                                                            current: 2.1.70 · latest: 2.1.70", true},
+
+		// OpenCode status bar
+		{"opencode status bar", "                                  ctrl+t variants  tab agents  ctrl+p commands    • OpenCode 1.2.17", true},
+
+		// OpenCode / generic idle keywords
+		{"waiting for input", "Waiting for input...", true},
+		{"ready", "Ready", true},
+		{"type a message", "Type a message to begin", true},
+
+		// Busy indicators — should NOT match
+		{"running command output", "Building project...", false},
+		{"file content", "func main() {", false},
+		{"progress bar", "[=====>    ] 50%", false},
+		{"error output", "Error: file not found", false},
+		{"git diff line", "+++ b/file.go", false},
+		{"empty string", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := lineIsIdleIndicator(tt.line)
+			if got != tt.want {
+				t.Errorf("lineIsIdleIndicator(%q) = %v, want %v", tt.line, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsShellPrompt(t *testing.T) {
+	tests := []struct {
+		line string
+		want bool
+	}{
+		{"$", true},
+		{"$ ", true},
+		{"user@host:~$ ", true},
+		{"%", true},
+		{"zsh% ", true},
+		{">", true},
+		{">>> ", true},
+		{"#", true},
+		{"root@box:/# ", true},
+		{"~/code ❯ ", true},
+		{"❯", true},
+		// Not prompts
+		{"", false},
+		{"hello world", false},
+		{"func main() {", false},
+		{"Building...", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.line, func(t *testing.T) {
+			got := isShellPrompt(tt.line)
+			if got != tt.want {
+				t.Errorf("isShellPrompt(%q) = %v, want %v", tt.line, got, tt.want)
+			}
+		})
 	}
 }

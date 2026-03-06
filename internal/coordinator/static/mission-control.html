@@ -520,6 +520,14 @@ var dismissedTexts = {};
   loadSpaceNav();
 })();
 
+document.addEventListener('keydown', function(e){
+  if (e.key === 'Escape'){
+    dismissApprovalPopup();
+    dismissConfirmDialog();
+    hideAgentComposer();
+  }
+});
+
 function loadSpaceNav(){
   fetch('/spaces')
     .then(function(r){ return r.json(); })
@@ -560,14 +568,16 @@ function renderSpaceList(spaces){
     o += '<div class="section-label">Spaces<span class="section-count">' + spaces.length + '</span></div>';
     o += '<div class="agent-grid">';
     spaces.forEach(function(s){
-      o += '<a href="/spaces/' + encodeURIComponent(s.name) + '/" style="text-decoration:none">';
-      o += '<div class="agent-card">';
+      var spaceUrl = '/spaces/' + encodeURIComponent(s.name) + '/';
+      o += '<div class="agent-card" style="cursor:pointer" onclick="window.location.href=\'' + spaceUrl + '\'">';
       o += '<div class="agent-head">';
-      o += '<span class="agent-name">' + esc(s.name) + '</span>';
+      o += '<span class="agent-name">' + esc(s.name);
+      o += '<button class="btn-delete-agent" onclick="event.stopPropagation();confirmDeleteWorkspaceFromList(\'' + esc(s.name).replace(/'/g,"\\'") + '\')" title="Delete workspace">&times;</button>';
+      o += '</span>';
       o += '<span class="agent-status status-active">' + s.agent_count + ' agents</span>';
       o += '</div>';
       o += '<div class="agent-summary">Updated ' + new Date(s.updated_at).toLocaleString() + '</div>';
-      o += '</div></a>';
+      o += '</div>';
     });
     o += '</div>';
   }
@@ -792,7 +802,20 @@ function flushInbox(){
   }
 }
 
-function showAgentComposer(){
+function dismissAllInbox(){
+  if (!cachedBoardData) return;
+  var agents = cachedBoardData.agents || {};
+  var sorted = sortAgents(agents);
+  var inbox = collectInboxData(agents, sorted);
+  inbox.blockers.forEach(function(b){
+    dismissInboxItem(b.agent, b.source, b.sourceIndex, b.text);
+  });
+  inbox.questions.forEach(function(q){
+    dismissInboxItem(q.agent, q.source, q.sourceIndex, q.text);
+  });
+}
+
+function showAgentComposer(preselect){
   // Fetch all agents across all spaces
   fetch('/spaces')
     .then(function(r) { return r.json(); })
@@ -861,7 +884,8 @@ function showAgentComposer(){
           composer += '<optgroup label="📁 ' + esc(agent.space) + '">';
           currentSpace = agent.space;
         }
-        composer += '<option value="' + esc(agent.fullId) + '">' + esc(agent.name) + ' (' + agent.status + ')</option>';
+        var selected = (preselect && agent.name.toLowerCase() === preselect.toLowerCase()) ? ' selected' : '';
+        composer += '<option value="' + esc(agent.fullId) + '"' + selected + '>' + esc(agent.name) + ' (' + agent.status + ')</option>';
       });
       if (currentSpace !== '') {
         composer += '</optgroup>';
@@ -896,6 +920,10 @@ function hideAgentComposer(){
   if (overlay) {
     document.body.removeChild(overlay);
   }
+}
+
+function showAgentComposerFor(agentName){
+  showAgentComposer(agentName);
 }
 
 function sendAgentMessage(){
@@ -1433,6 +1461,7 @@ function renderPanelOverview(data, sorted, tmuxData){
   o += '<div style="display:flex;gap:8px">';
   o += '<button class="btn" onclick="refreshTmux()" title="Refresh tmux status">Refresh</button>';
   o += '<button class="btn btn-primary" id="broadcast-btn" onclick="triggerBroadcast()">Broadcast All</button>';
+  o += '<button class="btn-delete-workspace" onclick="confirmDeleteWorkspace()" title="Delete this workspace and all its agents permanently">&#x2715; Delete Space</button>';
   o += '</div></div>';
   o += '<div class="card-body" style="padding:8px 12px">';
   o += '<table class="overview-table"><thead><tr><th class="ov-poke"></th><th>Agent</th><th>Status</th><th>Branch</th><th>Session</th><th>PR</th><th>Jira</th></tr></thead><tbody>';
@@ -1493,7 +1522,8 @@ function renderPanelInbox(data, sorted){
     o += '<div class="card-header"><span class="card-title">Inbox</span>';
     var inboxCount = allQuestions.length + allBlockers.length;
     o += '<div class="inbox-header-actions">';
-    o += '<button class="inbox-email-btn" onclick="showAgentComposer()" title="Send message to agent">📧</button>';
+    o += '<button class="inbox-email-btn" onclick="showAgentComposer()" title="Compose message to an agent" style="font-size:11px;width:auto;padding:0 8px;gap:4px">📧 Msg</button>';
+    o += '<button class="inbox-email-btn" onclick="dismissAllInbox()" title="Dismiss all inbox items" style="font-size:11px;width:auto;padding:0 8px;color:var(--text2);border-color:rgba(92,101,120,.2)">&#x2713; All</button>';
     o += '<span class="card-badge" style="background:var(--yellow-bg);color:var(--yellow);border:1px solid rgba(210,153,34,.2)">' + inboxCount + '</span>';
     o += '</div>';
     o += '</div>';
@@ -1526,13 +1556,15 @@ function renderPanelInbox(data, sorted){
     o += '<div class="card">';
     o += '<div class="card-header"><span class="card-title">Inbox</span>';
     o += '<div class="inbox-header-actions">';
-    o += '<button class="inbox-email-btn" onclick="showAgentComposer()" title="Send message to agent">📧</button>';
+    o += '<button class="inbox-email-btn" onclick="showAgentComposer()" title="Compose message to an agent" style="font-size:11px;width:auto;padding:0 8px">📧 Msg</button>';
     o += '</div>';
     o += '</div>';
     o += '<div class="card-body"><div style="color:var(--text3);font-size:12px;font-style:italic;text-align:center;padding:20px 0">No questions or blockers</div></div>';
     o += '</div>';
   }
   document.getElementById('panel-inbox').innerHTML = o;
+  var inboxBody = document.querySelector('#panel-inbox .card-body');
+  if (inboxBody) inboxBody.scrollTop = inboxBody.scrollHeight;
 }
 
 function renderPanelInterrupts(interruptMetrics, interruptLog){
@@ -1681,6 +1713,10 @@ function renderPanelAgents(data, sorted, tmuxData){
     if (a.next_steps) o += '<div class="agent-next"><strong>Next </strong>' + esc(a.next_steps) + '</div>';
 
     bossQs.forEach(function(q){ o += '<div class="boss-q">' + esc(q) + '</div>'; });
+
+    o += '<div class="agent-actions">';
+    o += '<button class="btn btn-sm btn-agent-poke" onclick="showAgentComposerFor(\'' + esc(name).replace(/'/g,"\\'") + '\')" title="Send message to ' + esc(name) + '">&#x21E8; Message</button>';
+    o += '</div>';
 
     if (a.updated_at) o += '<div class="agent-updated">' + timeAgo(a.updated_at) + '</div>';
 
