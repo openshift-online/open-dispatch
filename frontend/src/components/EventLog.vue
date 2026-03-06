@@ -22,6 +22,7 @@ const isOpen = ref(false)
 const autoScroll = ref(true)
 const scrollContainer = ref<HTMLElement | null>(null)
 const panelHeight = ref(220)
+const expandedId = ref<number | null>(null)
 const isResizing = ref(false)
 
 const MIN_HEIGHT = 100
@@ -339,7 +340,8 @@ defineExpose({ pushSSEEvent, clearLog })
           <tr
             v-for="entry in entries"
             :key="entry.id"
-            class="border-b border-border/50 hover:bg-accent/30 transition-colors"
+            class="border-b border-border/50 hover:bg-accent/30 transition-colors cursor-pointer"
+            @click="expandedId = expandedId === entry.id ? null : entry.id"
           >
             <td class="py-0.5 pl-4 pr-2 text-muted-foreground whitespace-nowrap align-top w-[70px]">
               {{ entry.timestamp }}
@@ -354,8 +356,12 @@ defineExpose({ pushSSEEvent, clearLog })
                 {{ entry.type }}
               </span>
             </td>
-            <td class="py-0.5 px-2 pr-4 text-foreground/80 break-words">
-              {{ entry.message }}
+            <td class="py-0.5 px-2 pr-4 text-foreground/80">
+              <div
+                :class="expandedId === entry.id ? 'whitespace-pre-wrap break-words' : 'truncate'"
+              >
+                {{ entry.message }}
+              </div>
             </td>
           </tr>
         </tbody>
