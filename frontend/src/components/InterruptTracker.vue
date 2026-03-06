@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { RefreshCw, ShieldCheck, CornerDownLeft } from 'lucide-vue-next'
+import { RefreshCw, ShieldCheck, CornerDownLeft, Clock, CheckCheck } from 'lucide-vue-next'
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog'
@@ -31,6 +31,9 @@ const actionFeedback = ref<Record<string, { ok: boolean; msg: string }>>({})
 // Approve confirmation dialog state
 const approveDialogOpen = ref(false)
 const approveDialogItem = ref<Interrupt | null>(null)
+// Mark all resolved dialog state
+const markAllDialogOpen = ref(false)
+const markingAll = ref(false)
 
 async function fetchData() {
   loading.value = true
@@ -60,10 +63,15 @@ defineExpose({ pendingCount, refresh: fetchData })
 
 const filteredInterrupts = computed(() => {
   const sorted = [...interrupts.value].sort((a, b) => {
-    // Pending first, then by creation time descending
+    // Pending first
     const aPending = !a.resolution
     const bPending = !b.resolution
     if (aPending !== bPending) return aPending ? -1 : 1
+    if (aPending && bPending) {
+      // Oldest pending first — they've waited longest and are most urgent
+      return new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+    }
+    // Resolved: newest first
     return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
   })
   if (showAll.value) return sorted
@@ -100,8 +108,37 @@ function relativeTime(dateStr: string): string {
   return `${days}d ago`
 }
 
+function waitingLabel(dateStr: string): string {
+  const now = Date.now()
+  const then = new Date(dateStr).getTime()
+  const seconds = Math.max(0, Math.floor((now - then) / 1000))
+  if (seconds < 60) return `${seconds}s`
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m`
+  const hours = Math.floor(minutes / 60)
+  return `${hours}h ${minutes % 60}m`
+}
+
 function formatFullDate(dateStr: string): string {
   return new Date(dateStr).toLocaleString()
+}
+
+// Returns additional CSS classes for a pending item based on how long it has waited
+function urgencyClass(item: Interrupt): string {
+  if (item.resolution) return ''
+  const minutes = (Date.now() - new Date(item.created_at).getTime()) / 60000
+  if (minutes > 15) return 'border-red-500/40 bg-red-500/8'
+  if (minutes > 5) return 'border-amber-500/40 bg-amber-500/8'
+  return ''
+}
+
+// Returns a label for the urgency level of a pending item
+function urgencyLevel(item: Interrupt): 'critical' | 'high' | 'normal' | null {
+  if (item.resolution) return null
+  const minutes = (Date.now() - new Date(item.created_at).getTime()) / 60000
+  if (minutes > 15) return 'critical'
+  if (minutes > 5) return 'high'
+  return 'normal'
 }
 
 const typeColors: Record<string, string> = {
@@ -190,6 +227,39 @@ function handleReplyKeydown(e: KeyboardEvent, item: Interrupt) {
   }
 }
 
+async function confirmMarkAllResolved() {
+  markAllDialogOpen.value = false
+  markingAll.value = true
+  try {
+    const pending = interrupts.value.filter(i => !i.resolution)
+    // For approval items, trigger actual approval signal
+    await Promise.allSettled(
+      pending
+        .filter(item => item.type === 'approval')
+        .map(item => api.approveAgent(props.spaceName, item.agent)),
+    )
+    // Optimistically mark all pending items as resolved locally
+    const resolvedAt = new Date().toISOString()
+    interrupts.value = interrupts.value.map(i => {
+      if (!i.resolution) {
+        return {
+          ...i,
+          resolution: {
+            resolved_by: 'boss',
+            answer: 'Bulk resolved',
+            resolved_at: resolvedAt,
+            wait_seconds: (Date.now() - new Date(i.created_at).getTime()) / 1000,
+          },
+        }
+      }
+      return i
+    })
+    setTimeout(() => fetchData(), 1000)
+  } finally {
+    markingAll.value = false
+  }
+}
+
 // Refetch when the space changes
 watch(() => props.spaceName, () => {
   interrupts.value = []
@@ -206,35 +276,48 @@ onMounted(fetchData)
 
 <template>
   <div class="space-y-4">
-    <!-- Header with refresh -->
-    <div class="flex items-center justify-between">
+    <!-- Header with refresh and bulk action -->
+    <div class="flex items-center justify-between gap-2">
       <h2 class="text-lg font-semibold tracking-tight">Inbox</h2>
-      <Button variant="outline" size="sm" :disabled="loading" @click="fetchData">
-        <RefreshCw :class="['size-4', loading && 'animate-spin']" />
-        Refresh
-      </Button>
+      <div class="flex items-center gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          :disabled="pendingCount === 0 || markingAll"
+          @click="markAllDialogOpen = true"
+        >
+          <CheckCheck class="size-4" />
+          Mark all resolved
+        </Button>
+        <Button variant="outline" size="sm" :disabled="loading" @click="fetchData">
+          <RefreshCw :class="['size-4', loading && 'animate-spin']" />
+          Refresh
+        </Button>
+      </div>
     </div>
 
-    <!-- Summary bar -->
-    <div
-      v-if="metrics && !error"
-      class="flex items-center gap-4 rounded-md border bg-muted/30 px-4 py-2.5 text-sm font-text"
-    >
-      <span>
-        <span :class="['font-semibold tabular-nums', pendingCount > 0 ? 'text-destructive' : '']">{{ pendingCount }}</span>
-        <span class="text-muted-foreground ml-1">pending</span>
-      </span>
-      <span class="text-border">|</span>
-      <span>
-        <span class="font-semibold tabular-nums">{{ resolvedTodayCount }}</span>
-        <span class="text-muted-foreground ml-1">resolved today</span>
-      </span>
-      <span class="text-border">|</span>
-      <span>
-        <span class="text-muted-foreground">Avg wait:</span>
-        <span class="font-semibold tabular-nums ml-1">{{ formatWaitTime(metrics.avg_wait_seconds) }}</span>
-      </span>
-    </div>
+    <!-- Summary bar (Card) -->
+    <Card v-if="metrics && !error">
+      <CardContent class="flex items-center gap-4 px-4 py-3 text-sm font-text">
+        <div class="flex items-center gap-1.5">
+          <span :class="['text-xl font-bold tabular-nums leading-none', pendingCount > 0 ? 'text-destructive' : 'text-foreground']">
+            {{ pendingCount }}
+          </span>
+          <span class="text-muted-foreground text-xs">pending</span>
+        </div>
+        <div class="w-px h-6 bg-border" />
+        <div class="flex items-center gap-1.5">
+          <span class="text-xl font-bold tabular-nums leading-none">{{ resolvedTodayCount }}</span>
+          <span class="text-muted-foreground text-xs">resolved today</span>
+        </div>
+        <div class="w-px h-6 bg-border" />
+        <div class="flex items-center gap-1.5">
+          <Clock class="size-3.5 text-muted-foreground" />
+          <span class="text-muted-foreground text-xs">Avg wait:</span>
+          <span class="font-semibold tabular-nums">{{ formatWaitTime(metrics.avg_wait_seconds) }}</span>
+        </div>
+      </CardContent>
+    </Card>
 
     <!-- Filter toggle -->
     <div class="flex items-center gap-2" role="group" aria-label="Filter interrupts">
@@ -282,11 +365,12 @@ onMounted(fetchData)
           :class="[
             'transition-colors',
             item.resolution ? 'opacity-60' : '',
+            urgencyClass(item),
           ]"
           :role="item.resolution ? undefined : 'alert'"
         >
           <CardContent class="p-4 space-y-2">
-            <!-- Top row: agent badge, type badge, timestamp -->
+            <!-- Top row: agent badge, type badge, urgency wait time, timestamp -->
             <div class="flex items-center gap-2 flex-wrap">
               <Badge variant="secondary" class="font-mono text-xs shrink-0">
                 {{ item.agent }}
@@ -294,6 +378,33 @@ onMounted(fetchData)
               <Badge variant="outline" :class="['text-xs capitalize shrink-0', typeColor(item.type)]">
                 {{ item.type }}
               </Badge>
+
+              <!-- Urgency wait time badge for pending items -->
+              <template v-if="!item.resolution">
+                <Badge
+                  v-if="urgencyLevel(item) === 'critical'"
+                  class="text-xs shrink-0 gap-1 bg-red-500/15 text-red-500 border-red-500/30"
+                  variant="outline"
+                >
+                  <Clock class="size-3" />
+                  {{ waitingLabel(item.created_at) }} waiting
+                </Badge>
+                <Badge
+                  v-else-if="urgencyLevel(item) === 'high'"
+                  class="text-xs shrink-0 gap-1 bg-amber-500/15 text-amber-500 border-amber-500/30"
+                  variant="outline"
+                >
+                  <Clock class="size-3" />
+                  {{ waitingLabel(item.created_at) }} waiting
+                </Badge>
+                <span
+                  v-else
+                  class="text-xs text-muted-foreground font-text tabular-nums"
+                >
+                  {{ waitingLabel(item.created_at) }} waiting
+                </span>
+              </template>
+
               <div class="ml-auto shrink-0">
                 <Tooltip>
                   <TooltipTrigger as-child>
@@ -402,6 +513,26 @@ onMounted(fetchData)
         <Button variant="outline" @click="approveDialogOpen = false">Cancel</Button>
         <Button @click="confirmApprove">
           <ShieldCheck class="size-4" /> Confirm Approve
+        </Button>
+      </DialogFooter>
+    </DialogContent>
+  </Dialog>
+
+  <!-- Mark all resolved confirmation dialog -->
+  <Dialog :open="markAllDialogOpen" @update:open="markAllDialogOpen = $event">
+    <DialogContent>
+      <DialogHeader>
+        <DialogTitle>Mark all resolved?</DialogTitle>
+        <DialogDescription>
+          This will resolve all {{ pendingCount }} pending item{{ pendingCount === 1 ? '' : 's' }}.
+          Approval-type items will send an approval signal to the agent.
+          This action cannot be undone.
+        </DialogDescription>
+      </DialogHeader>
+      <DialogFooter>
+        <Button variant="outline" @click="markAllDialogOpen = false">Cancel</Button>
+        <Button @click="confirmMarkAllResolved">
+          <CheckCheck class="size-4" /> Resolve all
         </Button>
       </DialogFooter>
     </DialogContent>
