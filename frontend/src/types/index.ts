@@ -42,6 +42,7 @@ export interface AgentUpdate {
   free_text?: string
   documents?: AgentDocument[]
   tmux_session?: string
+  jira?: string
   repo_url?: string
   messages?: AgentMessage[]
   updated_at: string
