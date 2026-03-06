@@ -103,7 +103,7 @@ function waitingLabel(dateStr: string): string {
 function urgencyClass(item: Interrupt): string {
   if (item.resolution) return ''
   const minutes = (Date.now() - new Date(item.created_at).getTime()) / 60000
-  if (minutes > 15) return 'border-red-500/40 bg-red-500/8'
+  if (minutes > 15) return 'border-orange-500/40 bg-orange-500/8'
   if (minutes > 5) return 'border-amber-500/40 bg-amber-500/8'
   return ''
 }
@@ -359,7 +359,7 @@ onMounted(fetchData)
               <template v-if="!item.resolution">
                 <Badge
                   v-if="urgencyLevel(item) === 'critical'"
-                  class="text-xs shrink-0 gap-1 bg-red-500/15 text-red-500 border-red-500/30"
+                  class="text-xs shrink-0 gap-1 bg-orange-500/15 text-orange-500 border-orange-500/30"
                   variant="outline"
                 >
                   <Clock class="size-3" />

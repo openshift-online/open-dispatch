@@ -125,7 +125,7 @@ function sseEventToBadge(sseType: string): string {
 }
 
 const badgeStyles: Record<string, string> = {
-  agent: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/20',
+  agent: 'bg-green-500/15 text-green-600 dark:text-green-400 border-green-500/20',
   approval: 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/20',
   interrupt: 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/20',
   broadcast: 'bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 border-cyan-500/20',
