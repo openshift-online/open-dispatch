@@ -108,6 +108,13 @@ const agentCountSummary = computed(() => {
 // Inactive sub-group: expanded by default only when total agents < 5
 const inactiveOpen = ref(false)
 watch(
+  () => props.selectedSpace,
+  () => {
+    // Clear search when navigating to a different space
+    agentSearch.value = ''
+  }
+)
+watch(
   () => props.currentSpace,
   (space, prev) => {
     if (space && !prev) {
