@@ -355,20 +355,26 @@ func (s *Server) handleListSpaces(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type spaceSummary struct {
-		Name       string    `json:"name"`
-		AgentCount int       `json:"agent_count"`
-		CreatedAt  time.Time `json:"created_at"`
-		UpdatedAt  time.Time `json:"updated_at"`
+		Name           string    `json:"name"`
+		AgentCount     int       `json:"agent_count"`
+		AttentionCount int       `json:"attention_count"`
+		CreatedAt      time.Time `json:"created_at"`
+		UpdatedAt      time.Time `json:"updated_at"`
 	}
 
 	s.mu.RLock()
 	summaries := make([]spaceSummary, 0, len(s.spaces))
 	for _, ks := range s.spaces {
+		attention := 0
+		for _, agent := range ks.Agents {
+			attention += len(agent.Questions) + len(agent.Blockers)
+		}
 		summaries = append(summaries, spaceSummary{
-			Name:       ks.Name,
-			AgentCount: len(ks.Agents),
-			CreatedAt:  ks.CreatedAt,
-			UpdatedAt:  ks.UpdatedAt,
+			Name:           ks.Name,
+			AgentCount:     len(ks.Agents),
+			AttentionCount: attention,
+			CreatedAt:      ks.CreatedAt,
+			UpdatedAt:      ks.UpdatedAt,
 		})
 	}
 	s.mu.RUnlock()

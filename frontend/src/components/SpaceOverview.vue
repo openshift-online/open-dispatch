@@ -109,7 +109,18 @@ const sortedAgents = computed(() => {
 const agentCount = computed(() => Object.keys(props.space.agents).length)
 
 const inboxRef = ref<InstanceType<typeof InterruptTracker> | null>(null)
-const inboxPending = computed(() => inboxRef.value?.pendingCount ?? 0)
+
+// Compute attention count directly from agent data (doesn't depend on InterruptTracker mounting)
+const attentionCount = computed(() => {
+  let count = 0
+  for (const agent of Object.values(props.space.agents)) {
+    count += (agent.questions?.length ?? 0) + (agent.blockers?.length ?? 0)
+  }
+  return count
+})
+
+// Use InterruptTracker's count if available (more accurate, includes interrupt types), otherwise fall back
+const inboxPending = computed(() => inboxRef.value?.pendingCount ?? attentionCount.value)
 </script>
 
 <template>
