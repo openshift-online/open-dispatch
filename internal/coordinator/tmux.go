@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 const (
@@ -224,23 +225,128 @@ func tmuxApprove(session string) error {
 	return exec.CommandContext(ctx, "tmux", "send-keys", "-t", session, "Enter").Run()
 }
 
+// tmuxIsIdle reports whether the tmux session appears to be waiting for input
+// (i.e., no agent or process is actively running). It is intentionally generous:
+// a session is "busy" only when there is positive evidence of activity.
 func tmuxIsIdle(session string) bool {
-	lines, err := tmuxCapturePaneLines(session, 5)
+	lines, err := tmuxCapturePaneLines(session, 10)
 	if err != nil {
+		// Cannot read the pane — default to idle rather than falsely reporting busy.
+		return true
+	}
+
+	// An entirely empty pane (all blank lines) is idle.
+	if len(lines) == 0 {
+		return true
+	}
+
+	// Check each of the last N non-empty lines for idle indicators.
+	for _, line := range lines {
+		if lineIsIdleIndicator(line) {
+			return true
+		}
+	}
+	return false
+}
+
+// lineIsIdleIndicator returns true if a single pane line indicates the session
+// is idle / waiting for user input.
+func lineIsIdleIndicator(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	// Strip box-drawing characters used by Claude Code / opencode TUI.
+	// Both light (│ U+2502) and heavy (┃ U+2503) verticals are used.
+	inner := trimmed
+	inner = strings.ReplaceAll(inner, "│", "")
+	inner = strings.ReplaceAll(inner, "┃", "")
+	inner = strings.TrimSpace(inner)
+
+	// ── Claude Code / opencode prompt ──
+	// The prompt line inside the TUI box is just ">" (possibly with trailing space).
+	if inner == ">" || inner == "> " {
+		return true
+	}
+
+	// ── Claude Code prompt with suggestion ──
+	// Claude Code shows "❯" as its prompt. When idle it may auto-fill a
+	// suggested prompt after the ❯ (e.g. "❯ give me something to work on").
+	// A line starting with ❯ means the agent is waiting for input regardless
+	// of what follows (user-typed text or auto-suggestion).
+	if strings.HasPrefix(trimmed, "❯") {
+		return true
+	}
+
+	// ── Shell prompts ──
+	// Common interactive shell prompts end with $, %, >, #, or ❯ possibly
+	// followed by a space. We check the last non-space rune of the line.
+	if isShellPrompt(trimmed) {
+		return true
+	}
+
+	// ── Claude Code / opencode hint lines ──
+	if strings.HasPrefix(trimmed, "?") && strings.Contains(trimmed, "for shortcuts") {
+		return true
+	}
+	if strings.Contains(trimmed, "auto-compact") || strings.Contains(trimmed, "auto-accept") {
+		return true
+	}
+
+	// ── Claude Code / opencode status bar ──
+	// OpenCode's bottom bar contains "ctrl+p commands" when idle.
+	// Claude Code's bottom bar contains "-- INSERT --" or "-- NORMAL --" (vim mode).
+	if strings.Contains(trimmed, "ctrl+p commands") {
+		return true
+	}
+	if strings.Contains(trimmed, "-- INSERT --") || strings.Contains(trimmed, "-- NORMAL --") {
+		return true
+	}
+
+	// ── OpenCode / Claude Code status bar keywords ──
+	lower := strings.ToLower(trimmed)
+	if strings.Contains(lower, "waiting for input") ||
+		strings.Contains(lower, "ready") ||
+		strings.Contains(lower, "type a message") ||
+		strings.Contains(lower, "press enter") {
+		return true
+	}
+
+	return false
+}
+
+// isShellPrompt returns true if the line looks like a common shell prompt.
+// It matches lines whose last meaningful character is one of $, %, >, #, or ❯,
+// but guards against false positives like "50%" or "line #3".
+func isShellPrompt(line string) bool {
+	s := strings.TrimRight(line, " \t")
+	if s == "" {
 		return false
 	}
-	for _, line := range lines {
-		inner := strings.TrimSpace(strings.ReplaceAll(line, "│", ""))
-		if inner == ">" {
-			return true
+	last, size := utf8.DecodeLastRuneInString(s)
+	switch last {
+	case '$', '❯', '»':
+		// These are unambiguous prompt characters.
+		return true
+	case '>':
+		// Reject "=>" (fat arrow), "->" (arrow), but allow bare ">" or ">>> ".
+		if len(s) >= 2 {
+			prev := s[len(s)-2]
+			if prev == '=' || prev == '-' {
+				return false
+			}
 		}
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "?") && strings.Contains(trimmed, "for shortcuts") {
-			return true
+		return true
+	case '%', '#':
+		// Reject "50%" or "line #3" — these chars are only prompts when NOT
+		// preceded by a digit.
+		before := s[:len(s)-size]
+		before = strings.TrimRight(before, " \t")
+		if before == "" {
+			return true // bare "%" or "#"
 		}
-		if strings.Contains(trimmed, "auto-compact") || strings.Contains(trimmed, "auto-accept") {
-			return true
+		prevChar := before[len(before)-1]
+		if prevChar >= '0' && prevChar <= '9' {
+			return false
 		}
+		return true
 	}
 	return false
 }
