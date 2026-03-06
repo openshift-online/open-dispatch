@@ -8,6 +8,7 @@ import { XCircle } from 'lucide-vue-next'
 export interface EventLogEntry {
   id: number
   timestamp: string
+  rawDate: Date
   type: string
   message: string
   source: 'server' | 'sse'
@@ -25,22 +26,58 @@ const panelHeight = ref(220)
 const expandedId = ref<number | null>(null)
 const isResizing = ref(false)
 
+// Filter state — empty set = show all
+const activeTypes = ref<Set<string>>(new Set())
+// Incremented every 10s to trigger relative timestamp recomputation
+const tick = ref(0)
+
 const MIN_HEIGHT = 100
 const MAX_HEIGHT = 600
 
 let nextId = 0
 let refreshTimer: ReturnType<typeof setInterval> | null = null
+let tickTimer: ReturnType<typeof setInterval> | null = null
 
 // Track which server-side log messages we've already seen (to avoid duplicates)
 const seenServerMessages = new Set<string>()
 
+// Format a Date as a human-readable relative string ("2s ago", "5m ago", etc.)
+function formatRelative(date: Date, _tick: number): string {
+  const diffMs = Date.now() - date.getTime()
+  const diffSec = Math.floor(diffMs / 1000)
+  if (diffSec < 5) return 'just now'
+  if (diffSec < 60) return `${diffSec}s ago`
+  const diffMin = Math.floor(diffSec / 60)
+  if (diffMin < 60) return `${diffMin}m ago`
+  const diffHr = Math.floor(diffMin / 60)
+  if (diffHr < 24) return `${diffHr}h ago`
+  return date.toLocaleTimeString('en-GB', { hour12: false })
+}
+
 // Parse "[HH:MM:SS] message" format from the server event log
 function parseEventLogEntry(raw: string): EventLogEntry {
   const match = raw.match(/^\[([^\]]+)\]\s*(.*)/)
+  const now = new Date()
   if (match) {
+    // Reconstruct a Date from the HH:MM:SS timestamp portion
+    const timeParts = match[1]!.split(':')
+    let rawDate = now
+    if (timeParts.length === 3) {
+      const candidate = new Date(now)
+      candidate.setHours(
+        parseInt(timeParts[0]!, 10),
+        parseInt(timeParts[1]!, 10),
+        parseInt(timeParts[2]!, 10),
+        0,
+      )
+      // If the reconstructed time is in the future, assume it was yesterday
+      if (candidate > now) candidate.setDate(candidate.getDate() - 1)
+      rawDate = candidate
+    }
     return {
       id: nextId++,
       timestamp: match[1]!,
+      rawDate,
       type: inferEventType(match[2]!),
       message: match[2]!,
       source: 'server',
@@ -48,7 +85,8 @@ function parseEventLogEntry(raw: string): EventLogEntry {
   }
   return {
     id: nextId++,
-    timestamp: new Date().toLocaleTimeString('en-GB', { hour12: false }),
+    timestamp: now.toLocaleTimeString('en-GB', { hour12: false }),
+    rawDate: now,
     type: 'info',
     message: raw,
     source: 'server',
@@ -105,7 +143,34 @@ function getBadgeClass(type: string): string {
   return badgeStyles[type] || badgeStyles.info!
 }
 
-const entryCount = computed(() => entries.value.length)
+// All distinct event types present in the log, sorted
+const availableTypes = computed(() => {
+  const types = new Set<string>()
+  for (const e of entries.value) types.add(e.type)
+  return [...types].sort()
+})
+
+// Entries filtered by the active type selection
+const filteredEntries = computed(() => {
+  if (activeTypes.value.size === 0) return entries.value
+  return entries.value.filter(e => activeTypes.value.has(e.type))
+})
+
+const entryCount = computed(() => filteredEntries.value.length)
+
+function toggleTypeFilter(type: string) {
+  const next = new Set(activeTypes.value)
+  if (next.has(type)) {
+    next.delete(type)
+  } else {
+    next.add(type)
+  }
+  activeTypes.value = next
+}
+
+function clearFilters() {
+  activeTypes.value = new Set()
+}
 
 // Load events from the server API (initial + periodic refresh)
 async function loadEvents() {
@@ -147,6 +212,7 @@ async function loadEvents() {
 function startRefresh() {
   stopRefresh()
   refreshTimer = setInterval(loadEvents, 3000)
+  tickTimer = setInterval(() => { tick.value++ }, 10000)
 }
 
 function stopRefresh() {
@@ -154,13 +220,19 @@ function stopRefresh() {
     clearInterval(refreshTimer)
     refreshTimer = null
   }
+  if (tickTimer !== null) {
+    clearInterval(tickTimer)
+    tickTimer = null
+  }
 }
 
 // Public method: push a live SSE event into the log
 function pushSSEEvent(sseType: string, summary: string) {
+  const now = new Date()
   const entry: EventLogEntry = {
     id: nextId++,
-    timestamp: new Date().toLocaleTimeString('en-GB', { hour12: false }),
+    timestamp: now.toLocaleTimeString('en-GB', { hour12: false }),
+    rawDate: now,
     type: sseEventToBadge(sseType),
     message: summary,
     source: 'sse',
@@ -238,6 +310,7 @@ watch(() => props.spaceName, () => {
   entries.value = []
   seenServerMessages.clear()
   nextId = 0
+  activeTypes.value = new Set()
   loadEvents()
 })
 
@@ -309,7 +382,7 @@ defineExpose({ pushSSEEvent, clearLog })
           Auto-scroll paused — click to resume
         </button>
         <Button
-          v-if="isOpen && entryCount > 0"
+          v-if="isOpen && entries.length > 0"
           variant="ghost"
           size="sm"
           class="h-5 px-2 text-[10px] text-muted-foreground hover:text-foreground"
@@ -335,6 +408,36 @@ defineExpose({ pushSSEEvent, clearLog })
       </div>
     </div>
 
+    <!-- Filter chips (shown when open and multiple event types exist) -->
+    <div
+      v-if="isOpen && availableTypes.length > 1"
+      class="flex flex-wrap items-center gap-1 px-4 pb-2 shrink-0"
+      role="group"
+      aria-label="Filter by event type"
+    >
+      <button
+        v-if="activeTypes.size > 0"
+        class="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium border transition-colors bg-primary/10 text-primary border-primary/30 hover:bg-primary/20 cursor-pointer"
+        @click="clearFilters"
+      >
+        All
+      </button>
+      <button
+        v-for="type in availableTypes"
+        :key="type"
+        :class="[
+          'inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide border transition-all cursor-pointer',
+          activeTypes.size === 0 || activeTypes.has(type)
+            ? getBadgeClass(type)
+            : 'bg-muted/30 text-muted-foreground/40 border-border/30',
+        ]"
+        :aria-pressed="activeTypes.has(type)"
+        @click="toggleTypeFilter(type)"
+      >
+        {{ type }}
+      </button>
+    </div>
+
     <!-- Log content -->
     <div
       v-show="isOpen"
@@ -343,15 +446,16 @@ defineExpose({ pushSSEEvent, clearLog })
       :style="{ height: panelHeight + 'px' }"
       @scroll="handleScroll"
     >
-      <div v-if="entries.length === 0" class="text-center text-muted-foreground py-8 italic text-xs">
-        No events yet
+      <div v-if="filteredEntries.length === 0" class="text-center text-muted-foreground py-8 italic text-xs">
+        {{ entries.length === 0 ? 'No events yet' : 'No events match the current filter' }}
       </div>
       <table v-else class="w-full">
         <tbody>
           <tr
-            v-for="entry in entries"
+            v-for="(entry, index) in filteredEntries"
             :key="entry.id"
-            class="border-b border-border/50 hover:bg-accent/30 transition-colors cursor-pointer"
+            class="border-b border-border/50 hover:bg-accent/40 transition-colors cursor-pointer"
+            :class="index % 2 === 0 ? 'bg-background' : 'bg-muted/20'"
             tabindex="0"
             role="row"
             :aria-expanded="expandedId === entry.id"
@@ -359,8 +463,11 @@ defineExpose({ pushSSEEvent, clearLog })
             @keydown.enter.prevent="expandedId = expandedId === entry.id ? null : entry.id"
             @keydown.space.prevent="expandedId = expandedId === entry.id ? null : entry.id"
           >
-            <td class="py-0.5 pl-4 pr-2 text-muted-foreground whitespace-nowrap align-top w-[70px]">
-              {{ entry.timestamp }}
+            <td
+              class="py-0.5 pl-4 pr-2 text-muted-foreground whitespace-nowrap align-top w-[70px] tabular-nums"
+              :title="entry.timestamp"
+            >
+              {{ formatRelative(entry.rawDate, tick) }}
             </td>
             <td class="py-0.5 px-2 align-top w-[80px]">
               <span
@@ -374,8 +481,12 @@ defineExpose({ pushSSEEvent, clearLog })
             </td>
             <td class="py-0.5 px-2 pr-4 text-foreground/80 max-w-0 w-full">
               <div
-                :class="expandedId === entry.id ? 'whitespace-pre-wrap break-words py-1' : 'truncate'"
+                v-if="expandedId === entry.id"
+                class="py-1.5 whitespace-pre-wrap break-words leading-relaxed text-foreground/90 overflow-x-auto"
               >
+                {{ entry.message }}
+              </div>
+              <div v-else class="truncate">
                 {{ entry.message }}
               </div>
             </td>
