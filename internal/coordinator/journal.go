@@ -35,18 +35,46 @@ type SpaceEvent struct {
 	Payload   json.RawMessage `json:"payload,omitempty"`
 }
 
+// CompactionThreshold is the number of events per space that triggers automatic
+// count-based compaction. The server checks this after each write.
+const CompactionThreshold = 1000
+
 // EventJournal is an append-only JSONL event log for a data directory.
 // One journal file per space: {space}.events.jsonl
 type EventJournal struct {
-	dataDir string
-	mu      sync.Mutex
-	seq     atomic.Int64
+	dataDir   string
+	mu        sync.RWMutex          // write lock for Append/Compact; read lock for LoadSince
+	seq       atomic.Int64
+	openFiles map[string]*os.File   // persistent write handles, protected by mu (write lock)
+	counts    sync.Map              // map[string]*atomic.Int64 — event count per space
 }
 
 func NewEventJournal(dataDir string) *EventJournal {
-	j := &EventJournal{dataDir: dataDir}
+	j := &EventJournal{
+		dataDir:   dataDir,
+		openFiles: make(map[string]*os.File),
+	}
 	j.seq.Store(time.Now().UnixMilli())
 	return j
+}
+
+// EventCount returns the current event count for a space (best-effort, not exact after restart).
+func (j *EventJournal) EventCount(space string) int64 {
+	v, ok := j.counts.Load(space)
+	if !ok {
+		return 0
+	}
+	return v.(*atomic.Int64).Load()
+}
+
+func (j *EventJournal) incrementCount(space string) {
+	v, _ := j.counts.LoadOrStore(space, new(atomic.Int64))
+	v.(*atomic.Int64).Add(1)
+}
+
+func (j *EventJournal) resetCount(space string) {
+	v, _ := j.counts.LoadOrStore(space, new(atomic.Int64))
+	v.(*atomic.Int64).Store(1) // 1 for the snapshot event just written
 }
 
 func (j *EventJournal) journalPath(space string) string {
@@ -88,20 +116,24 @@ func (j *EventJournal) write(ev *SpaceEvent) {
 		return
 	}
 
-	f, err := os.OpenFile(j.journalPath(ev.Space), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		return
+	f, ok := j.openFiles[ev.Space]
+	if !ok {
+		f, err = os.OpenFile(j.journalPath(ev.Space), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			return
+		}
+		j.openFiles[ev.Space] = f
 	}
-	defer f.Close()
 	f.Write(data)
 	f.Write([]byte("\n"))
+	j.incrementCount(ev.Space)
 }
 
 // LoadSince returns all events for a space at or after the given time.
 // If since is zero, all events are returned.
 func (j *EventJournal) LoadSince(space string, since time.Time) ([]SpaceEvent, error) {
-	j.mu.Lock()
-	defer j.mu.Unlock()
+	j.mu.RLock()
+	defer j.mu.RUnlock()
 
 	f, err := os.Open(j.journalPath(space))
 	if err != nil {
@@ -282,6 +314,12 @@ func (j *EventJournal) Compact(space string, ks *KnowledgeSpace) error {
 		return fmt.Errorf("marshal event: %w", err)
 	}
 
+	// Close and evict the pooled write handle before rewriting the file.
+	if f, ok := j.openFiles[space]; ok {
+		f.Close()
+		delete(j.openFiles, space)
+	}
+
 	// Write new journal with only the snapshot.
 	path := j.journalPath(space)
 	tmp := path + ".tmp"
@@ -293,7 +331,11 @@ func (j *EventJournal) Compact(space string, ks *KnowledgeSpace) error {
 	f.Write([]byte("\n"))
 	f.Close()
 
-	return os.Rename(tmp, path)
+	if err := os.Rename(tmp, path); err != nil {
+		return err
+	}
+	j.resetCount(space)
+	return nil
 }
 
 // MigrateFromJSON writes an initial snapshot event from an existing JSON space
