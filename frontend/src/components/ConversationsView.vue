@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, nextTick } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import type { KnowledgeSpace, AgentUpdate } from '@/types'
 import { Input } from '@/components/ui/input'
@@ -7,23 +7,17 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
 import AgentAvatar from './AgentAvatar.vue'
 import AgentProfileCard from './AgentProfileCard.vue'
 import StatusBadge from './StatusBadge.vue'
-import { MessageSquare, Search, X, GitBranch, ExternalLink, Pencil, SendHorizontal } from 'lucide-vue-next'
+import { MessageSquare, Search, X, GitBranch, ExternalLink, SendHorizontal, Plus } from 'lucide-vue-next'
 import { renderMarkdown } from '@/lib/markdown'
 import { relativeTime } from '@/composables/useTime'
 import api from '@/api/client'
 
 const props = defineProps<{
   space: KnowledgeSpace
+  preselectAgent?: string
 }>()
 
 interface ConversationMessage {
@@ -42,8 +36,6 @@ interface Conversation {
 }
 
 // Reconstruct pairwise conversation threads from all agents' message inboxes.
-// When B sends to A, the message lands in A's inbox with sender=B.
-// A conversation between A and B is: A's inbox msgs where sender=B + B's inbox msgs where sender=A.
 const conversations = computed((): Conversation[] => {
   const convMap = new Map<string, Conversation>()
 
@@ -89,11 +81,48 @@ const filteredConversations = computed(() => {
   )
 })
 
-const selectedConversation = computed(() =>
-  conversations.value.find(c => c.key === selectedKey.value) ?? null,
-)
+// selectedConversation — includes virtual entry for preselectAgent with no history
+const selectedConversation = computed((): Conversation | null => {
+  const found = conversations.value.find(c => c.key === selectedKey.value)
+  if (found) return found
+  // Virtual conversation (no messages yet) from preselectAgent or New Message picker
+  if (selectedKey.value) {
+    const parts = selectedKey.value.split('\u2194') as [string, string]
+    return { key: selectedKey.value, participants: parts, messages: [], lastMessageAt: '' }
+  }
+  return null
+})
 
-// Auto-select first conversation on load
+// Unread tracking — conversations not yet visited this session
+const readKeys = ref(new Set<string>())
+
+function unreadCount(conv: Conversation): number {
+  if (readKeys.value.has(conv.key)) return 0
+  return conv.messages.length
+}
+
+// Mark conversation as read when selected
+watch(selectedKey, key => {
+  if (key) readKeys.value.add(key)
+})
+
+// Pre-select from preselectAgent prop (set by App.vue from router param or when starting new conv)
+onMounted(() => {
+  if (props.preselectAgent) {
+    const sorted = [props.preselectAgent, 'boss'].sort()
+    selectedKey.value = sorted.join('\u2194')
+  }
+})
+
+// Also react to preselectAgent prop changes (e.g. navigating between conversation routes)
+watch(() => props.preselectAgent, agent => {
+  if (agent) {
+    const sorted = [agent, 'boss'].sort()
+    selectedKey.value = sorted.join('\u2194')
+  }
+})
+
+// Auto-select first conversation if nothing is selected
 watch(
   conversations,
   convs => {
@@ -161,38 +190,71 @@ function prLink(agent: { pr?: string; repo_url?: string }): string | null {
   return `${repoBase}/pull/${prNum}`
 }
 
-// ── Compose new message ─────────────────────────────────────────────
-const composeOpen = ref(false)
-const composeAgent = ref('')
-const composeMessage = ref('')
-const composeSending = ref(false)
-const composeSelectRef = ref<HTMLSelectElement | null>(null)
+// ── New Message picker ──────────────────────────────────────────────
+const newMsgPickerOpen = ref(false)
+const newMsgSearch = ref('')
+const newMsgInputRef = ref<HTMLInputElement | null>(null)
 
 const allAgentNames = computed(() => Object.keys(props.space.agents).sort())
 
-function openCompose(preselect?: string) {
-  composeAgent.value = preselect ?? allAgentNames.value[0] ?? ''
-  composeMessage.value = ''
-  composeOpen.value = true
-  nextTick(() => composeSelectRef.value?.focus())
+const filteredAgentNames = computed(() => {
+  const q = newMsgSearch.value.toLowerCase()
+  if (!q) return allAgentNames.value
+  return allAgentNames.value.filter(n => n.toLowerCase().includes(q))
+})
+
+function openNewMsgPicker() {
+  newMsgSearch.value = ''
+  newMsgPickerOpen.value = true
+  // Focus the search input after render
+  setTimeout(() => newMsgInputRef.value?.focus(), 50)
 }
 
-async function sendCompose() {
-  const text = composeMessage.value.trim()
-  if (!text || !composeAgent.value) return
-  composeSending.value = true
+function selectNewMsgAgent(agentName: string) {
+  newMsgPickerOpen.value = false
+  newMsgSearch.value = ''
+  // Navigate to the named conversation route so URL is bookmarkable
+  router.push({
+    name: 'conversation',
+    params: { space: props.space.name, conversationAgent: agentName },
+  })
+  // Also immediately set selectedKey so the thread shows before navigation processes
+  const sorted = [agentName, 'boss'].sort()
+  selectedKey.value = sorted.join('\u2194')
+}
+
+// ── Inline compose ──────────────────────────────────────────────────
+const inlineMessage = ref('')
+const inlineSending = ref(false)
+const composeRef = ref<HTMLTextAreaElement | null>(null)
+
+// Boss can compose to the other participant (only if boss is in the conversation)
+const composeRecipient = computed(() => {
+  if (!selectedConversation.value) return null
+  const { participants } = selectedConversation.value
+  if (!participants.includes('boss')) return null
+  return participants.find(p => p !== 'boss') ?? null
+})
+
+async function sendInlineCompose() {
+  const text = inlineMessage.value.trim()
+  const recipient = composeRecipient.value
+  if (!text || !recipient) return
+  inlineSending.value = true
   try {
-    await api.sendMessage(props.space.name, composeAgent.value, text, 'boss')
-    composeOpen.value = false
-    composeMessage.value = ''
-    // Select the new/existing conversation
-    const sorted = [composeAgent.value, 'boss'].sort()
-    selectedKey.value = sorted.join('\u2194')
+    await api.sendMessage(props.space.name, recipient, text, 'boss')
+    inlineMessage.value = ''
   } catch (_) {
-    // message still delivered; close anyway
-    composeOpen.value = false
+    // silently handle
   } finally {
-    composeSending.value = false
+    inlineSending.value = false
+  }
+}
+
+function handleComposeKeydown(e: KeyboardEvent) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault()
+    sendInlineCompose()
   }
 }
 </script>
@@ -204,31 +266,67 @@ async function sendCompose() {
       class="w-72 shrink-0 border-r flex flex-col min-h-0"
       aria-label="Conversations"
     >
-      <!-- Search + Compose -->
-      <div class="p-3 border-b shrink-0 space-y-2">
-        <div class="relative">
-          <Search
-            class="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground pointer-events-none"
-            aria-hidden="true"
-          />
-          <Input
-            v-model="searchQuery"
-            type="search"
-            placeholder="Filter conversations…"
-            class="pl-8 h-8 text-sm"
-            aria-label="Filter conversations by agent name"
-          />
+      <!-- Search + New Message button -->
+      <div class="p-3 border-b shrink-0">
+        <div class="flex items-center gap-2">
+          <div class="relative flex-1">
+            <Search
+              class="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground pointer-events-none"
+              aria-hidden="true"
+            />
+            <Input
+              v-model="searchQuery"
+              type="search"
+              placeholder="Filter conversations…"
+              class="pl-8 h-8 text-sm"
+              aria-label="Filter conversations by agent name"
+            />
+          </div>
+          <Tooltip>
+            <TooltipTrigger as-child>
+              <Button
+                variant="outline"
+                size="icon-sm"
+                class="shrink-0 h-8 w-8"
+                aria-label="Start new conversation"
+                @click="openNewMsgPicker"
+              >
+                <Plus class="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>New message</TooltipContent>
+          </Tooltip>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          class="w-full h-8 text-xs gap-1.5 justify-start"
-          aria-label="Compose new message"
-          @click="openCompose()"
+
+        <!-- New message agent picker -->
+        <div
+          v-if="newMsgPickerOpen"
+          class="mt-2 rounded-md border bg-popover shadow-md"
         >
-          <Pencil class="size-3.5" />
-          New Message
-        </Button>
+          <div class="p-2 border-b">
+            <Input
+              ref="newMsgInputRef"
+              v-model="newMsgSearch"
+              placeholder="Search agents…"
+              class="h-7 text-xs"
+              @keydown.escape="newMsgPickerOpen = false"
+            />
+          </div>
+          <ScrollArea class="max-h-48">
+            <div v-if="filteredAgentNames.length === 0" class="px-3 py-4 text-xs text-muted-foreground text-center">
+              No agents found
+            </div>
+            <button
+              v-for="name in filteredAgentNames"
+              :key="name"
+              class="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-accent transition-colors text-left"
+              @click="selectNewMsgAgent(name)"
+            >
+              <AgentAvatar :name="name" :size="18" />
+              {{ name }}
+            </button>
+          </ScrollArea>
+        </div>
       </div>
 
       <!-- List -->
@@ -243,6 +341,13 @@ async function sendCompose() {
           <p class="text-sm">
             {{ searchQuery ? 'No matching conversations' : 'No messages yet' }}
           </p>
+          <button
+            v-if="!searchQuery"
+            class="mt-2 text-xs text-primary hover:underline"
+            @click="openNewMsgPicker"
+          >
+            Start a conversation →
+          </button>
         </div>
 
         <ul v-else class="py-1" role="listbox" aria-label="Conversation list">
@@ -257,8 +362,8 @@ async function sendCompose() {
                 <AgentProfileCard
                   :agent-name="conv.participants[0]"
                   :agent="space.agents[conv.participants[0]]"
+                  :space-name="space.name"
                   @select-agent="goToAgentDetail($event)"
-                  @message-agent="openCompose($event)"
                 >
                   <button
                     class="absolute top-0 left-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -271,8 +376,8 @@ async function sendCompose() {
                 <AgentProfileCard
                   :agent-name="conv.participants[1]"
                   :agent="space.agents[conv.participants[1]]"
+                  :space-name="space.name"
                   @select-agent="goToAgentDetail($event)"
-                  @message-agent="openCompose($event)"
                 >
                   <button
                     class="absolute bottom-0 right-0 rounded-full ring-2 ring-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -290,12 +395,19 @@ async function sendCompose() {
                   <span class="text-sm font-medium truncate">
                     {{ conv.participants[0] }} ↔ {{ conv.participants[1] }}
                   </span>
-                  <time
-                    :datetime="conv.lastMessageAt"
-                    class="text-xs text-muted-foreground shrink-0"
-                  >
-                    {{ formatRelativeTime(conv.lastMessageAt) }}
-                  </time>
+                  <div class="flex items-center gap-1 shrink-0">
+                    <!-- Unread badge -->
+                    <span
+                      v-if="unreadCount(conv) > 0"
+                      class="inline-flex items-center justify-center rounded-full bg-primary text-primary-foreground text-[10px] font-bold min-w-[16px] h-4 px-1"
+                    >{{ unreadCount(conv) }}</span>
+                    <time
+                      :datetime="conv.lastMessageAt"
+                      class="text-xs text-muted-foreground"
+                    >
+                      {{ formatRelativeTime(conv.lastMessageAt) }}
+                    </time>
+                  </div>
                 </div>
                 <p v-if="conv.messages.length > 0" class="text-xs text-muted-foreground truncate mt-0.5">
                   <span class="font-medium">{{ conv.messages[conv.messages.length - 1]!.sender }}:</span>
@@ -344,6 +456,19 @@ async function sendCompose() {
             aria-label="Conversation thread"
             aria-live="polite"
           >
+            <!-- Empty thread state -->
+            <div
+              v-if="selectedConversation.messages.length === 0"
+              class="flex flex-col items-center justify-center py-16 text-center text-muted-foreground gap-2"
+              role="status"
+            >
+              <MessageSquare class="size-8 opacity-30" aria-hidden="true" />
+              <p class="text-sm font-medium text-foreground">No messages yet</p>
+              <p v-if="composeRecipient" class="text-xs">
+                Say hello to {{ composeRecipient }} using the compose box below.
+              </p>
+            </div>
+
             <template
               v-for="(msg, i) in selectedConversation.messages"
               :key="msg.id"
@@ -370,8 +495,8 @@ async function sendCompose() {
                 <AgentProfileCard
                   :agent-name="msg.sender"
                   :agent="space.agents[msg.sender]"
+                  :space-name="space.name"
                   @select-agent="goToAgentDetail($event)"
-                  @message-agent="openCompose($event)"
                 >
                   <button
                     class="shrink-0 mt-0.5 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -386,8 +511,8 @@ async function sendCompose() {
                     <AgentProfileCard
                       :agent-name="msg.sender"
                       :agent="space.agents[msg.sender]"
+                      :space-name="space.name"
                       @select-agent="goToAgentDetail($event)"
-                  @message-agent="openCompose($event)"
                     >
                       <button
                         class="text-xs font-semibold hover:text-primary transition-colors hover:underline cursor-pointer"
@@ -399,8 +524,8 @@ async function sendCompose() {
                       <AgentProfileCard
                         :agent-name="msg.recipient"
                         :agent="space.agents[msg.recipient]"
+                        :space-name="space.name"
                         @select-agent="goToAgentDetail($event)"
-                  @message-agent="openCompose($event)"
                       >
                         <button
                           class="hover:text-foreground transition-colors hover:underline cursor-pointer"
@@ -425,6 +550,30 @@ async function sendCompose() {
             </template>
           </div>
         </ScrollArea>
+
+        <!-- Inline compose box — only when boss is a participant -->
+        <div v-if="composeRecipient" class="border-t p-3 shrink-0">
+          <form class="flex items-end gap-2" @submit.prevent="sendInlineCompose">
+            <Textarea
+              ref="composeRef"
+              v-model="inlineMessage"
+              :placeholder="`Message ${composeRecipient}… (Enter to send, Shift+Enter for newline)`"
+              class="flex-1 min-h-[38px] max-h-40 resize-none text-sm"
+              :rows="1"
+              :disabled="inlineSending"
+              @keydown="handleComposeKeydown"
+            />
+            <Button
+              type="submit"
+              size="sm"
+              class="shrink-0 h-9"
+              :disabled="!inlineMessage.trim() || inlineSending"
+              aria-label="Send message"
+            >
+              <SendHorizontal class="size-4" />
+            </Button>
+          </form>
+        </div>
       </template>
 
       <!-- No conversation selected -->
@@ -442,50 +591,6 @@ async function sendCompose() {
         </div>
       </div>
     </div>
-
-    <!-- Compose new message dialog -->
-    <Dialog v-model:open="composeOpen">
-      <DialogContent class="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>New Message</DialogTitle>
-          <DialogDescription>Send a message from boss to an agent.</DialogDescription>
-        </DialogHeader>
-        <form class="flex flex-col gap-3" @submit.prevent="sendCompose">
-          <div class="flex flex-col gap-1">
-            <label class="text-xs font-medium text-muted-foreground" for="compose-agent">To</label>
-            <select
-              id="compose-agent"
-              ref="composeSelectRef"
-              v-model="composeAgent"
-              class="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-            >
-              <option v-for="name in allAgentNames" :key="name" :value="name">{{ name }}</option>
-            </select>
-          </div>
-          <div class="flex flex-col gap-1">
-            <label class="text-xs font-medium text-muted-foreground" for="compose-msg">Message</label>
-            <Textarea
-              id="compose-msg"
-              v-model="composeMessage"
-              placeholder="Type your message…"
-              :rows="4"
-              @keydown.ctrl.enter.prevent="sendCompose"
-              @keydown.escape="composeOpen = false"
-            />
-            <p class="text-xs text-muted-foreground">Ctrl+Enter to send</p>
-          </div>
-          <Button
-            type="submit"
-            size="sm"
-            class="self-end gap-1.5"
-            :disabled="!composeMessage.trim() || !composeAgent || composeSending"
-          >
-            <SendHorizontal class="size-3.5" />
-            {{ composeSending ? 'Sending…' : 'Send' }}
-          </Button>
-        </form>
-      </DialogContent>
-    </Dialog>
 
     <!-- Agent detail slideover -->
     <Transition
