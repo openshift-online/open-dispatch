@@ -842,6 +842,7 @@ func (s *Server) handleSpaceAgent(w http.ResponseWriter, r *http.Request, spaceN
 		update.UpdatedAt = time.Now().UTC()
 
 		s.mu.Lock()
+		canonical := resolveAgentName(ks, agentName)
 		if existing, ok := ks.Agents[canonical]; ok {
 			if update.TmuxSession == "" && existing.TmuxSession != "" {
 				update.TmuxSession = existing.TmuxSession
@@ -890,8 +891,8 @@ func (s *Server) handleSpaceAgent(w http.ResponseWriter, r *http.Request, spaceN
 			http.Error(w, fmt.Sprintf("space %q not found", spaceName), http.StatusNotFound)
 			return
 		}
-		canonical := resolveAgentName(ks, agentName)
 		s.mu.Lock()
+		canonical := resolveAgentName(ks, agentName)
 		delete(ks.Agents, canonical)
 		ks.UpdatedAt = time.Now().UTC()
 		if err := s.saveSpace(ks); err != nil {
@@ -969,9 +970,8 @@ func (s *Server) handleAgentMessage(w http.ResponseWriter, r *http.Request, spac
 		s.mu.Unlock()
 	}
 
-	canonical := resolveAgentName(ks, agentName)
-
 	s.mu.Lock()
+	canonical := resolveAgentName(ks, agentName)
 	agent, exists := ks.Agents[canonical]
 	if !exists {
 		// Create agent record if it doesn't exist
@@ -1122,9 +1122,9 @@ func (s *Server) handleAgentDocument(w http.ResponseWriter, r *http.Request, spa
 
 		// Update agent's documents list in the knowledge space
 		ks := s.getOrCreateSpace(spaceName)
-		canonical := resolveAgentName(ks, agentName)
 
 		s.mu.Lock()
+		canonical := resolveAgentName(ks, agentName)
 		if ks.Agents[canonical] == nil {
 			ks.Agents[canonical] = &AgentUpdate{
 				Status:    StatusActive,
@@ -1179,8 +1179,8 @@ func (s *Server) handleAgentDocument(w http.ResponseWriter, r *http.Request, spa
 		// Remove document from agent's list
 		ks, ok := s.getSpace(spaceName)
 		if ok {
-			canonical := resolveAgentName(ks, agentName)
 			s.mu.Lock()
+			canonical := resolveAgentName(ks, agentName)
 			if agent := ks.Agents[canonical]; agent != nil {
 				for i, doc := range agent.Documents {
 					if doc.Slug == documentSlug {
