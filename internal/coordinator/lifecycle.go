@@ -156,7 +156,7 @@ func (s *Server) handleAgentSpawn(w http.ResponseWriter, r *http.Request, spaceN
 	}
 
 	s.logEvent(fmt.Sprintf("[%s/%s] spawned in tmux session %q", spaceName, agentName, sessionName))
-	s.broadcastSSE(spaceName, "agent_spawned", agentName)
+	s.broadcastSSE(spaceName, agentName, "agent_spawned", agentName)
 
 	// Send ignite asynchronously after agent has time to initialize
 	go func() {
@@ -229,7 +229,7 @@ func (s *Server) handleAgentStop(w http.ResponseWriter, r *http.Request, spaceNa
 	s.mu.Unlock()
 
 	s.logEvent(fmt.Sprintf("[%s/%s] stopped (session %q killed)", spaceName, canonical, sessionName))
-	s.broadcastSSE(spaceName, "agent_stopped", canonical)
+	s.broadcastSSE(spaceName, canonical, "agent_stopped", canonical)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -326,7 +326,7 @@ func (s *Server) handleAgentRestart(w http.ResponseWriter, r *http.Request, spac
 	s.mu.Unlock()
 
 	s.logEvent(fmt.Sprintf("[%s/%s] restarted in new session %q", spaceName, canonical, newSession))
-	s.broadcastSSE(spaceName, "agent_restarted", canonical)
+	s.broadcastSSE(spaceName, canonical, "agent_restarted", canonical)
 
 	// Send ignite asynchronously after agent has time to initialize
 	go func() {
