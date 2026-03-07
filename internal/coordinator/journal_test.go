@@ -656,6 +656,110 @@ func TestEventJournalCompactVsConcurrentAppend(t *testing.T) {
 	}
 }
 
+// TestEventJournalFileHandlePool verifies that the pooled file handle survives
+// multiple appends and that Compact properly closes and replaces it.
+func TestEventJournalFileHandlePool(t *testing.T) {
+	dir := t.TempDir()
+	j := NewEventJournal(dir)
+
+	// Write many events — pooled handle should be reused across calls.
+	for i := 0; i < 50; i++ {
+		j.Append("pool", EventAgentUpdated, "Worker", map[string]int{"i": i})
+	}
+
+	events, err := j.LoadSince("pool", time.Time{})
+	if err != nil {
+		t.Fatalf("LoadSince: %v", err)
+	}
+	if len(events) != 50 {
+		t.Fatalf("expected 50 events, got %d", len(events))
+	}
+
+	// Compact should close the pooled handle and reset the file.
+	ks := NewKnowledgeSpace("pool")
+	ks.Agents["Worker"] = &AgentUpdate{Status: StatusDone, Summary: "Worker: done", UpdatedAt: time.Now().UTC()}
+	if err := j.Compact("pool", ks); err != nil {
+		t.Fatalf("Compact: %v", err)
+	}
+
+	// Subsequent appends should open a new handle to the compacted file.
+	j.Append("pool", EventAgentUpdated, "Worker", map[string]int{"i": 99})
+	events2, err := j.LoadSince("pool", time.Time{})
+	if err != nil {
+		t.Fatalf("LoadSince after Compact: %v", err)
+	}
+	// Should have snapshot + 1 post-compact event = 2 events.
+	if len(events2) != 2 {
+		t.Fatalf("expected 2 events after Compact+Append, got %d", len(events2))
+	}
+	if events2[0].Type != EventSnapshot {
+		t.Errorf("expected first event to be snapshot, got %s", events2[0].Type)
+	}
+}
+
+// TestEventJournalEventCount verifies that EventCount tracks appends and resets on Compact.
+func TestEventJournalEventCount(t *testing.T) {
+	dir := t.TempDir()
+	j := NewEventJournal(dir)
+
+	if c := j.EventCount("cnt"); c != 0 {
+		t.Errorf("expected 0 initial count, got %d", c)
+	}
+
+	for i := 0; i < 10; i++ {
+		j.Append("cnt", EventAgentUpdated, "A", map[string]int{"i": i})
+	}
+	if c := j.EventCount("cnt"); c != 10 {
+		t.Errorf("expected count 10, got %d", c)
+	}
+
+	ks := NewKnowledgeSpace("cnt")
+	if err := j.Compact("cnt", ks); err != nil {
+		t.Fatalf("Compact: %v", err)
+	}
+	// After compaction, count resets to 1 (the snapshot event).
+	if c := j.EventCount("cnt"); c != 1 {
+		t.Errorf("expected count 1 after Compact, got %d", c)
+	}
+
+	// Count threshold check.
+	if j.EventCount("cnt") > CompactionThreshold {
+		t.Error("single snapshot event should not exceed CompactionThreshold")
+	}
+}
+
+// TestEventJournalCountTriggeredCompaction verifies that EventCount exceeds
+// CompactionThreshold after many appends, simulating the trigger condition.
+func TestEventJournalCountTriggeredCompaction(t *testing.T) {
+	dir := t.TempDir()
+	j := NewEventJournal(dir)
+
+	for i := 0; i < CompactionThreshold+1; i++ {
+		j.Append("heavy", EventAgentUpdated, "Heavy", map[string]int{"i": i})
+	}
+	if j.EventCount("heavy") <= CompactionThreshold {
+		t.Errorf("expected count > %d, got %d", CompactionThreshold, j.EventCount("heavy"))
+	}
+
+	// Compact and verify count resets.
+	ks := NewKnowledgeSpace("heavy")
+	ks.Agents["Heavy"] = &AgentUpdate{Status: StatusActive, Summary: "Heavy: active", UpdatedAt: time.Now().UTC()}
+	if err := j.Compact("heavy", ks); err != nil {
+		t.Fatalf("Compact: %v", err)
+	}
+	if c := j.EventCount("heavy"); c != 1 {
+		t.Errorf("expected count 1 after Compact, got %d", c)
+	}
+	// After compaction journal should have just the snapshot.
+	events, err := j.LoadSince("heavy", time.Time{})
+	if err != nil {
+		t.Fatalf("LoadSince: %v", err)
+	}
+	if len(events) != 1 || events[0].Type != EventSnapshot {
+		t.Errorf("expected exactly 1 snapshot after compaction, got %d events", len(events))
+	}
+}
+
 // postJSONWithSender posts JSON to a URL with a custom X-Agent-Name header.
 func postJSONWithSender(t *testing.T, url string, payload any, sender string) (int, string) {
 	t.Helper()

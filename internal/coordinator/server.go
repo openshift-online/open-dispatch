@@ -784,8 +784,8 @@ func (s *Server) handleSpaceAgent(w http.ResponseWriter, r *http.Request, spaceN
 			http.Error(w, fmt.Sprintf("space %q not found", spaceName), http.StatusNotFound)
 			return
 		}
-		canonical := resolveAgentName(ks, agentName)
 		s.mu.RLock()
+		canonical := resolveAgentName(ks, agentName)
 		agent, exists := ks.Agents[canonical]
 		s.mu.RUnlock()
 		if !exists {
@@ -808,7 +808,6 @@ func (s *Server) handleSpaceAgent(w http.ResponseWriter, r *http.Request, spaceN
 		}
 
 		ks := s.getOrCreateSpace(spaceName)
-		canonical := resolveAgentName(ks, agentName)
 
 		contentType := r.Header.Get("Content-Type")
 		body, err := io.ReadAll(r.Body)
@@ -878,6 +877,7 @@ func (s *Server) handleSpaceAgent(w http.ResponseWriter, r *http.Request, spaceN
 
 		s.logEvent(fmt.Sprintf("[%s/%s] %s: %s", spaceName, canonical, update.Status, update.Summary))
 		s.journal.Append(spaceName, EventAgentUpdated, canonical, &update)
+		s.maybeCompact(spaceName)
 		s.recordDecisionInterrupts(spaceName, canonical, &update)
 		sseData, _ := json.Marshal(map[string]string{"space": spaceName, "agent": canonical, "status": string(update.Status), "summary": update.Summary})
 		s.broadcastSSE(spaceName, "agent_updated", string(sseData))
@@ -2103,28 +2103,41 @@ func (s *Server) compactAllSpaces() {
 	s.mu.RUnlock()
 
 	for _, name := range names {
-		// Snapshot the space under RLock so Compact does not race with writers.
-		s.mu.RLock()
-		ks, ok := s.spaces[name]
-		var ksCopy *KnowledgeSpace
-		if ok {
-			b, err := json.Marshal(ks)
-			if err == nil {
-				var snap KnowledgeSpace
-				if json.Unmarshal(b, &snap) == nil {
-					ksCopy = &snap
-				}
+		s.compactSpace(name)
+	}
+}
+
+// compactSpace snapshots and compacts the journal for a single space.
+func (s *Server) compactSpace(name string) {
+	// Snapshot the space under RLock so Compact does not race with writers.
+	s.mu.RLock()
+	ks, ok := s.spaces[name]
+	var ksCopy *KnowledgeSpace
+	if ok {
+		b, err := json.Marshal(ks)
+		if err == nil {
+			var snap KnowledgeSpace
+			if json.Unmarshal(b, &snap) == nil {
+				ksCopy = &snap
 			}
 		}
-		s.mu.RUnlock()
-		if ksCopy == nil {
-			continue
-		}
-		if err := s.journal.Compact(name, ksCopy); err != nil {
-			s.logEvent(fmt.Sprintf("compaction failed for %q: %v", name, err))
-		} else {
-			s.logEvent(fmt.Sprintf("compacted journal for %q", name))
-		}
+	}
+	s.mu.RUnlock()
+	if ksCopy == nil {
+		return
+	}
+	if err := s.journal.Compact(name, ksCopy); err != nil {
+		s.logEvent(fmt.Sprintf("compaction failed for %q: %v", name, err))
+	} else {
+		s.logEvent(fmt.Sprintf("compacted journal for %q", name))
+	}
+}
+
+// maybeCompact triggers a background compaction for a space if its event count
+// exceeds CompactionThreshold. It returns immediately; compaction runs async.
+func (s *Server) maybeCompact(spaceName string) {
+	if s.journal.EventCount(spaceName) > CompactionThreshold {
+		go s.compactSpace(spaceName)
 	}
 }
 
