@@ -296,6 +296,18 @@ func renderTable(t *Table) string {
 	return b.String()
 }
 
+// StatusSnapshot is a point-in-time record of an agent's status.
+// Snapshots are appended to data/{space}-history.json on every agent
+// status change and on periodic liveness loop ticks.
+type StatusSnapshot struct {
+	AgentName      string      `json:"agent_name"`
+	Space          string      `json:"space"`
+	Status         AgentStatus `json:"status"`
+	InferredStatus string      `json:"inferred_status,omitempty"`
+	Stale          bool        `json:"stale,omitempty"`
+	Timestamp      time.Time   `json:"timestamp"`
+}
+
 func (u *AgentUpdate) Validate() error {
 	if !u.Status.Valid() {
 		return fmt.Errorf("invalid status %q: must be one of active, blocked, done, idle, error", u.Status)

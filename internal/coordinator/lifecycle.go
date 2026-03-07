@@ -58,6 +58,13 @@ func (s *Server) checkStaleness() {
 		if changed {
 			s.saveSpace(ks) //nolint:errcheck
 		}
+		// Record a periodic snapshot for all agents so history captures liveness ticks.
+		for name, agent := range ks.Agents {
+			snap := snapshotFromAgent(spaceName, name, agent)
+			if err := s.appendSnapshot(snap); err != nil {
+				s.logEvent(fmt.Sprintf("[%s/%s] warning: failed to append liveness snapshot: %v", spaceName, name, err))
+			}
+		}
 	}
 }
 
