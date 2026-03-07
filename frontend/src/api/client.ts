@@ -5,6 +5,7 @@ import type {
   TmuxAgentStatus,
   InterruptMetrics,
   Interrupt,
+  StatusSnapshot,
 } from '@/types'
 
 class ApiClient {
@@ -91,6 +92,17 @@ class ApiClient {
     return this.request<InterruptMetrics>(
       `/spaces/${encodeURIComponent(space)}/factory/metrics`,
     )
+  }
+
+  // --------------- History ---------------
+
+  fetchHistory(space: string, sinceMs?: number): Promise<StatusSnapshot[]> {
+    let path = `/spaces/${encodeURIComponent(space)}/history`
+    if (sinceMs !== undefined) {
+      const since = new Date(Date.now() - sinceMs).toISOString()
+      path += `?since=${encodeURIComponent(since)}`
+    }
+    return this.request<StatusSnapshot[]>(path)
   }
 
   // --------------- Events ---------------

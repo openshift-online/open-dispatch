@@ -75,6 +75,16 @@ export interface TmuxAgentStatus {
   prompt_text: string
 }
 
+// GET /spaces/{space}/history response items
+export interface StatusSnapshot {
+  agent_name: string
+  space: string
+  status: AgentStatus
+  inferred_status?: string
+  stale?: boolean
+  timestamp: string
+}
+
 // GET /spaces/{space}/factory/interrupts response items
 // Field names match Go struct json tags in interrupts.go
 export interface InterruptResolution {
