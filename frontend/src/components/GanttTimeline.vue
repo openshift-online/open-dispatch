@@ -7,6 +7,10 @@ const props = defineProps<{
   spaceName: string
 }>()
 
+const emit = defineEmits<{
+  'select-agent': [name: string]
+}>()
+
 // Window options in hours
 const WINDOW_OPTIONS = [1, 2, 4, 8]
 const windowHours = ref(2)
@@ -120,13 +124,23 @@ const tooltip = ref<{
   stale: boolean
 }>({ visible: false, x: 0, y: 0, status: '', start: '', end: '', stale: false })
 
+const TOOLTIP_W = 180
+const TOOLTIP_H = 60
+
+function clampedTooltipPos(clientX: number, clientY: number): { x: number; y: number } {
+  const x = Math.min(clientX + 12, window.innerWidth - TOOLTIP_W - 8)
+  const y = Math.min(clientY - 8, window.innerHeight - TOOLTIP_H - 8)
+  return { x, y }
+}
+
 function showTooltip(e: MouseEvent, seg: Segment) {
   const fmt = (d: Date) =>
     d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  const { x, y } = clampedTooltipPos(e.clientX, e.clientY)
   tooltip.value = {
     visible: true,
-    x: e.clientX + 12,
-    y: e.clientY - 8,
+    x,
+    y,
     status: seg.status,
     start: fmt(seg.startTime),
     end: fmt(seg.endTime),
@@ -139,8 +153,9 @@ function hideTooltip() {
 }
 
 function moveTooltip(e: MouseEvent) {
-  tooltip.value.x = e.clientX + 12
-  tooltip.value.y = e.clientY - 8
+  const { x, y } = clampedTooltipPos(e.clientX, e.clientY)
+  tooltip.value.x = x
+  tooltip.value.y = y
 }
 
 watch([() => props.spaceName, windowHours], () => load(), { immediate: false })
@@ -198,12 +213,13 @@ onUnmounted(() => {
         class="grid items-center gap-2"
         style="grid-template-columns: 88px 1fr"
       >
-        <span
-          class="truncate text-[11px] font-semibold text-muted-foreground text-right pr-1"
-          :title="row.agent"
+        <button
+          class="truncate text-[11px] font-semibold text-muted-foreground text-right pr-1 hover:text-primary transition-colors cursor-pointer"
+          :title="`View ${row.agent}`"
+          @click="emit('select-agent', row.agent)"
         >
           {{ row.agent }}
-        </span>
+        </button>
         <div class="relative h-4 rounded bg-muted border border-border overflow-hidden">
           <div
             v-for="(seg, si) in row.segments"
