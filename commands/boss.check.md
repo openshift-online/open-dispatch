@@ -5,22 +5,41 @@ STOP. This is a mechanical status sync. Do NOT plan or analyze. Execute these 4 
 - If quoted (e.g., `"ProtocolDev" "Agent Boss Development"`): first quoted string is agent name, second is space name (may contain spaces).
 - If one word: it is the space name — get agent name from `tmux display-message -p '#S'`.
 
-**URL-encode the space name** for all curl commands: replace spaces with `%20`.  
+**URL-encode the space name** for all curl commands: replace spaces with `%20`.
 Example: `Agent Boss Development` → `Agent%20Boss%20Development`
 
-## Step 1: Read the blackboard
+**Rule**: Always use `curl`. Never use the WebFetch tool — it does not work on localhost.
+
+## Step 1: Fetch new messages via cursor
+
+The `/messages?since=` endpoint returns **only new messages** since your last check-in. This avoids the truncation problem with `/raw` (which accumulates all historical messages).
 
 ```bash
-curl -s "http://localhost:8899/spaces/SPACE_URL_ENCODED/raw"
+# Load saved cursor (empty string = fetch all messages)
+CURSOR_FILE="/tmp/boss_cursor_AGENT_NAME_SPACE_URL_ENCODED.txt"
+CURSOR=$(cat "$CURSOR_FILE" 2>/dev/null || echo "")
+
+# Fetch new messages only
+if [ -n "$CURSOR" ]; then
+  MSG_RESPONSE=$(curl -s "http://localhost:8899/spaces/SPACE_URL_ENCODED/agent/AGENT_NAME/messages?since=${CURSOR}")
+else
+  MSG_RESPONSE=$(curl -s "http://localhost:8899/spaces/SPACE_URL_ENCODED/agent/AGENT_NAME/messages")
+fi
+
+echo "$MSG_RESPONSE"
+
+# Save new cursor for next check-in
+NEW_CURSOR=$(echo "$MSG_RESPONSE" | sed 's/.*"cursor":"\([^"]*\)".*/\1/' | grep -v '^{')
+[ -n "$NEW_CURSOR" ] && echo "$NEW_CURSOR" > "$CURSOR_FILE"
 ```
 
-Scan your section (`### YourAgentName`) for:
-- **`#### Messages`** — messages from the boss or other agents. Note instructions.
-- **Standing orders** — anything in shared contracts addressed to you.
+Read the output. Note any new messages — these are **directives**, act on them.
 
-Do NOT analyze other agents' sections.
+If you also need to check standing orders, read only your own section from the blackboard:
 
-**Rule**: Always use `curl`. Never use the WebFetch tool — it does not work on localhost.
+```bash
+curl -s "http://localhost:8899/spaces/SPACE_URL_ENCODED/agent/AGENT_NAME"
+```
 
 ## Step 2: Write your status JSON and POST it
 
@@ -55,7 +74,7 @@ You MUST see `accepted for` in the response. If not, retry once.
 
 ## Step 3: Act on messages
 
-If messages in Step 1 contain instructions or task assignments, begin working on them now. If a message asks a question, answer it in your next status update.
+If messages from Step 1 contain instructions or task assignments, begin working on them now. If a message asks a question, answer it in your next status update.
 
 If no messages, or messages were purely informational, skip this step.
 
