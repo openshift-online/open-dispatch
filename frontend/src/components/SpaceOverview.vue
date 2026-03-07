@@ -45,6 +45,7 @@ import {
 import StatusBadge from './StatusBadge.vue'
 import InterruptTracker from './InterruptTracker.vue'
 import AgentAvatar from './AgentAvatar.vue'
+import GanttTimeline from './GanttTimeline.vue'
 
 const props = defineProps<{
   space: KnowledgeSpace
@@ -350,6 +351,7 @@ const activeSections = computed(() => [
               {{ inboxPending }}
             </Badge>
           </TabsTrigger>
+          <TabsTrigger value="timeline">Timeline</TabsTrigger>
         </TabsList>
 
         <TabsContent value="agents">
@@ -684,6 +686,10 @@ const activeSections = computed(() => [
 
         <TabsContent value="inbox">
           <InterruptTracker ref="inboxRef" :space-name="space.name" />
+        </TabsContent>
+
+        <TabsContent value="timeline">
+          <GanttTimeline :space-name="space.name" />
         </TabsContent>
       </Tabs>
 
