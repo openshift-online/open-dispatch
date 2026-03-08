@@ -242,9 +242,9 @@ class ApiClient {
     if (filters?.assigned_to) params.set('assigned_to', filters.assigned_to)
     if (filters?.label) params.set('label', filters.label)
     const qs = params.toString()
-    return this.request<Task[]>(
+    return this.request<{ tasks: Task[]; total: number }>(
       `/spaces/${encodeURIComponent(space)}/tasks${qs ? '?' + qs : ''}`,
-    )
+    ).then(r => r.tasks ?? [])
   }
 
   createTask(space: string, task: {
