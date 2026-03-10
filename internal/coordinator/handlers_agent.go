@@ -665,8 +665,16 @@ func (s *Server) handleIgnition(w http.ResponseWriter, r *http.Request, spaceNam
 	}
 
 	s.mu.RLock()
-	defer s.mu.RUnlock()
+	text := s.buildIgnitionText(spaceName, agentName, sessionID)
+	s.mu.RUnlock()
 
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	fmt.Fprint(w, text)
+}
+
+// buildIgnitionText assembles the agent ignition/bootstrap text.
+// Must be called with s.mu.RLock held.
+func (s *Server) buildIgnitionText(spaceName, agentName, sessionID string) string {
 	// Get ks for the response builder. If the space doesn't exist yet
 	// (no sessionID, no previous posts), use an empty space so the
 	// response is well-formed.
@@ -871,8 +879,7 @@ func (s *Server) handleIgnition(w http.ResponseWriter, r *http.Request, spaceNam
 	b.WriteString("  }'\n")
 	b.WriteString("```\n")
 
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	fmt.Fprint(w, b.String())
+	return b.String()
 }
 
 func (s *Server) handleBroadcast(w http.ResponseWriter, r *http.Request, spaceName string) {
@@ -1476,8 +1483,8 @@ func (s *Server) handleAgentConfig(w http.ResponseWriter, r *http.Request, space
 		if patch.InitialPrompt != "" {
 			cfg.InitialPrompt = patch.InitialPrompt
 		}
-		if patch.PersonaIDs != nil {
-			cfg.PersonaIDs = patch.PersonaIDs
+		if patch.Personas != nil {
+			cfg.Personas = s.resolvePersonaRefs(patch.Personas)
 		}
 		if patch.Backend != "" {
 			cfg.Backend = patch.Backend
@@ -1549,9 +1556,9 @@ func (s *Server) handleAgentDuplicate(w http.ResponseWriter, r *http.Request, sp
 	var newCfg AgentConfig
 	if srcCfg := ks.agentConfig(srcCanonical); srcCfg != nil {
 		newCfg = *srcCfg
-		if srcCfg.PersonaIDs != nil {
-			newCfg.PersonaIDs = make([]string, len(srcCfg.PersonaIDs))
-			copy(newCfg.PersonaIDs, srcCfg.PersonaIDs)
+		if srcCfg.Personas != nil {
+			newCfg.Personas = make([]PersonaRef, len(srcCfg.Personas))
+			copy(newCfg.Personas, srcCfg.Personas)
 		}
 		if srcCfg.Repos != nil {
 			newCfg.Repos = make([]SessionRepo, len(srcCfg.Repos))
@@ -1566,8 +1573,8 @@ func (s *Server) handleAgentDuplicate(w http.ResponseWriter, r *http.Request, sp
 	if req.OverrideConfig.InitialPrompt != "" {
 		newCfg.InitialPrompt = req.OverrideConfig.InitialPrompt
 	}
-	if req.OverrideConfig.PersonaIDs != nil {
-		newCfg.PersonaIDs = req.OverrideConfig.PersonaIDs
+	if req.OverrideConfig.Personas != nil {
+		newCfg.Personas = req.OverrideConfig.Personas
 	}
 	if req.OverrideConfig.Backend != "" {
 		newCfg.Backend = req.OverrideConfig.Backend

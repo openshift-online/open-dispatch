@@ -70,12 +70,13 @@ type Server struct {
 	repo           *bossdb.Repository // nil until Start() initialises the DB
 	backends       map[string]SessionBackend
 	defaultBackend string
-	logger         Logger
+	logger               Logger
 	// allowSkipPermissions, when true, appends --dangerously-skip-permissions to every
 	// tmux-backend agent launch command. Controlled by the BOSS_ALLOW_SKIP_PERMISSIONS
 	// environment variable (default off). This is a deliberate operator-level toggle —
 	// one decision applies to all agents uniformly.
 	allowSkipPermissions bool
+	personas             *PersonaStore
 }
 
 func NewServer(port, dataDir string) *Server {
@@ -101,11 +102,12 @@ func NewServer(port, dataDir string) *Server {
 		nudgeInFlight:      make(map[string]bool),
 		stalenessThreshold: thresh,
 		registrations:      make(map[string]*AgentRegistrationRecord),
-		journal:            NewEventJournal(dataDir),
+		journal:              NewEventJournal(dataDir),
 		backends:             map[string]SessionBackend{"tmux": NewTmuxSessionBackend()},
 		defaultBackend:       "tmux",
 		logger:               NewLogger(os.Stdout),
 		allowSkipPermissions: os.Getenv("BOSS_ALLOW_SKIP_PERMISSIONS") == "true",
+		personas:             newPersonaStore(dataDir),
 	}
 
 	if apiURL := os.Getenv("AMBIENT_API_URL"); apiURL != "" {
@@ -217,6 +219,16 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/agents", func(w http.ResponseWriter, r *http.Request) {
 		s.handleSpaceAgentsJSON(w, r, DefaultSpaceName)
 	})
+	mux.HandleFunc("/personas", s.handlePersonaList)
+	mux.HandleFunc("/personas/", func(w http.ResponseWriter, r *http.Request) {
+		id := strings.TrimPrefix(r.URL.Path, "/personas/")
+		id = strings.TrimRight(id, "/")
+		s.handlePersonaDetail(w, r, id)
+	})
+	mux.HandleFunc("/settings", s.handleSettings)
+	mcpHandler := s.buildMCPHandler()
+	mux.Handle("/mcp", mcpHandler)
+	mux.Handle("/mcp/", mcpHandler)
 
 	listener, err := net.Listen("tcp", s.port)
 	if err != nil {
@@ -241,6 +253,12 @@ func (s *Server) Start() error {
 	s.startCompactionLoop(30 * time.Minute)
 
 	return nil
+}
+
+// localURL returns the base URL of this server (e.g. "http://localhost:8899").
+func (s *Server) localURL() string {
+	port := strings.TrimPrefix(s.port, ":")
+	return "http://localhost:" + port
 }
 
 func (s *Server) Stop() error {
