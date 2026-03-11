@@ -286,6 +286,9 @@ func (s *Server) deleteAgentFromDB(spaceName, agentName string) {
 	if err := s.repo.DeleteMessages(spaceName, agentName); err != nil {
 		s.logEvent(fmt.Sprintf("warning: delete messages for %s/%s: %v", spaceName, agentName, err))
 	}
+	if err := s.repo.DeleteNotifications(spaceName, agentName); err != nil {
+		s.logEvent(fmt.Sprintf("warning: delete notifications for %s/%s: %v", spaceName, agentName, err))
+	}
 }
 
 func (s *Server) deleteTaskFromDB(spaceName, taskID string) {

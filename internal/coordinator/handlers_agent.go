@@ -214,9 +214,17 @@ func (s *Server) handleSpaceAgent(w http.ResponseWriter, r *http.Request, spaceN
 			sessionID = agent.SessionID
 			backendType = agent.BackendType
 		}
+		// Clear dangling parent references: children of this agent become root-level.
+		for _, rec := range ks.Agents {
+			if rec != nil && rec.Status != nil && strings.EqualFold(rec.Status.Parent, canonical) {
+				rec.Status.Parent = ""
+			}
+		}
 		delete(ks.Agents, canonical)
 		rebuildChildren(ks) // keep children lists consistent after removal
 		ks.UpdatedAt = time.Now().UTC()
+		// Clean up in-memory approval tracking for this agent.
+		delete(s.approvalTracked, spaceName+"/"+canonical)
 		if err := s.saveSpace(ks); err != nil {
 			s.mu.Unlock()
 			writeJSONError(w, fmt.Sprintf("save: %v", err), http.StatusInternalServerError)

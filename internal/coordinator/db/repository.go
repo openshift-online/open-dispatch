@@ -132,6 +132,11 @@ func (r *Repository) DeleteMessages(spaceName, agentName string) error {
 	return r.db.Where("space_name = ? AND agent_name = ?", spaceName, agentName).Delete(&AgentMessage{}).Error
 }
 
+// DeleteNotifications removes all notifications for an agent (used when agent is deleted).
+func (r *Repository) DeleteNotifications(spaceName, agentName string) error {
+	return r.db.Where("space_name = ? AND agent_name = ?", spaceName, agentName).Delete(&AgentNotification{}).Error
+}
+
 // ---- AgentNotification operations ----
 
 // SaveNotification persists a notification.
