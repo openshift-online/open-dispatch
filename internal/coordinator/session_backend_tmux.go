@@ -92,27 +92,34 @@ func (b *TmuxSessionBackend) CreateSession(ctx context.Context, opts SessionCrea
 		}
 	}
 
-	// Register boss MCP server with Claude before launching (idempotent).
+	// Build --mcp-config JSON for per-invocation MCP registration (no ~/.claude.json pollution).
+	// The config is baked into the launch command so each session gets a fresh, isolated MCP
+	// registration that disappears when the process exits.
 	if mcpServerURL != "" {
-		// Inject the bearer token into the session environment so the shell
-		// variable is available for the claude mcp add --header flag.
-		// Using tmux set-environment keeps it out of scrollback history.
+		var mcpJSON string
 		if agentToken != "" {
-			exec.CommandContext(ctx, "tmux", "set-environment", "-t", sessionID, "BOSS_AGENT_TOKEN", agentToken).Run() //nolint:errcheck
-		}
-
-		var mcpCmd string
-		if agentToken != "" {
-			mcpCmd = fmt.Sprintf(`claude mcp add %s --transport http --header "Authorization: Bearer ${BOSS_AGENT_TOKEN}" %s/mcp 2>/dev/null || true`, mcpServerName, mcpServerURL)
+			mcpJSON = fmt.Sprintf(`{"mcpServers":{%q:{"type":"http","url":%q,"headers":{"Authorization":"Bearer %s"}}}}`,
+				mcpServerName, mcpServerURL+"/mcp", agentToken)
 		} else {
-			mcpCmd = fmt.Sprintf("claude mcp add %s --transport http %s/mcp 2>/dev/null || true", mcpServerName, mcpServerURL)
+			mcpJSON = fmt.Sprintf(`{"mcpServers":{%q:{"type":"http","url":%q}}}`,
+				mcpServerName, mcpServerURL+"/mcp")
 		}
-		if err := tmuxSendKeys(sessionID, mcpCmd); err != nil {
-			// Non-fatal: log but continue — agent can still function without MCP.
-			_ = err
-		}
-		time.Sleep(300 * time.Millisecond)
+		command += fmt.Sprintf(" --mcp-config '%s' --strict-mcp-config", mcpJSON)
 	}
+
+	// Wrap in restart loop so agent stays alive after claude exits.
+	// Single-quoted heredoc delimiter prevents expansion of the command body,
+	// which is safe even though the command contains single quotes (--mcp-config '...').
+	wrapperPath := "/tmp/boss-agent-" + sessionID + ".sh"
+	heredoc := fmt.Sprintf(
+		"cat > %s <<'BOSSEOF'\n#!/bin/bash\nwhile true; do\n  %s\n  echo '[boss] claude exited (exit $?) -- restarting in 3s'\n  sleep 3\ndone\nBOSSEOF",
+		wrapperPath, command)
+	if err := tmuxSendKeys(sessionID, heredoc); err != nil {
+		exec.CommandContext(ctx, "tmux", "kill-session", "-t", sessionID).Run() //nolint:errcheck
+		return "", fmt.Errorf("write restart wrapper: %w", err)
+	}
+	time.Sleep(300 * time.Millisecond)
+	command = "bash " + wrapperPath
 
 	if err := tmuxSendKeys(sessionID, command); err != nil {
 		exec.CommandContext(ctx, "tmux", "kill-session", "-t", sessionID).Run() //nolint:errcheck
