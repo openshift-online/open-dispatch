@@ -50,6 +50,8 @@ import {
   playAgentMoodIdle,
   playAgentTick,
   resetAgentChimes,
+  startBlockedPulse,
+  stopBlockedPulse,
 } from '@/composables/useNotifications'
 import { useConfetti } from '@/composables/useConfetti'
 
@@ -67,6 +69,8 @@ const hierarchyTree = ref<HierarchyTree | null>(null)
 
 const loading = ref(true)
 const spaceLoading = ref(false)
+// Portal iris reveal — increments on each space switch to retrigger the animation
+const spaceRevealKey = ref(0)
 const errorMessage = ref<string | null>(null)
 const successMessage = ref<string | null>(null)
 const statusAnnouncement = ref('')
@@ -312,6 +316,8 @@ async function loadSpace(name: string, showLoader = false) {
   if (showLoader) spaceLoading.value = true
   try {
     currentSpace.value = await api.fetchSpace(name)
+    // Portal iris reveal — retrigger the curtain animation on each space switch
+    if (showLoader) spaceRevealKey.value++
   } catch (err) {
     console.error(`Failed to load space ${name}:`, err)
     currentSpace.value = null
@@ -745,9 +751,15 @@ function setupSSE() {
     // Agent signature chime — plays once per agent per page load on first update
     playAgentSignatureChime(data.agent)
     // Dissonance alert — fires when transitioning INTO blocked/error (not already there)
-    if ((data.status === 'blocked' || data.status === 'error')
-        && prevStatus !== 'blocked' && prevStatus !== 'error') {
+    const agentKey = `${data.space}:${data.agent}`
+    const isNowBlocked = data.status === 'blocked' || data.status === 'error'
+    const wasBlocked = prevStatus === 'blocked' || prevStatus === 'error'
+    if (isNowBlocked && !wasBlocked) {
       playBlockedAlert()
+      // Idea J — start 30s repeating pulse while agent stays blocked
+      startBlockedPulse(agentKey)
+    } else if (!isNowBlocked && wasBlocked) {
+      stopBlockedPulse(agentKey)
     }
     // Agent moods (#5): ascending voice on going active, descending on going idle
     if (prevStatus && prevStatus !== data.status) {
@@ -1048,6 +1060,8 @@ onMounted(async () => {
   setupSSE()
   startPolling()
   document.addEventListener('keydown', handleKeydown)
+  _applyAmbientHue()
+  _chromaTimer = window.setInterval(_applyAmbientHue, 60_000)
 
   if (selectedSpace.value) {
     // Route already has a space — load its data and connect SSE
@@ -1063,12 +1077,32 @@ onMounted(async () => {
   }
 })
 
+// ── Time-of-day chromashift ─────────────────────────────────────────
+// Updates --ambient-hue CSS custom property every 60s so the dashboard
+// background tints shift gently over the day (barely perceptible, 3% opacity).
+// Dawn: amber 35° → Morning: teal 175° → Afternoon: blue 210° →
+// Dusk: purple 270° → Night: indigo 230°
+function _ambientHueFromHour(h: number): number {
+  if (h < 6)  return 230 // night: indigo
+  if (h < 9)  return 35  // dawn: amber
+  if (h < 12) return 175 // morning: teal
+  if (h < 17) return 210 // afternoon: blue
+  if (h < 20) return 270 // dusk: purple
+  return 240             // evening: deep indigo
+}
+let _chromaTimer = 0
+function _applyAmbientHue() {
+  const hue = _ambientHueFromHour(new Date().getHours())
+  document.documentElement.style.setProperty('--ambient-hue', String(hue))
+}
+
 onUnmounted(() => {
   sse.disconnect()
   stopPolling()
   if (_spaceReloadTimer !== null) clearTimeout(_spaceReloadTimer)
   if (_spacesReloadTimer !== null) clearTimeout(_spacesReloadTimer)
   document.removeEventListener('keydown', handleKeydown)
+  clearInterval(_chromaTimer)
 })
 </script>
 
@@ -1266,7 +1300,9 @@ onUnmounted(() => {
         </Transition>
 
         <!-- Main content -->
-        <main class="flex-1 min-h-0 overflow-hidden flex flex-col" aria-label="Dashboard content">
+        <main class="relative flex-1 min-h-0 overflow-hidden flex flex-col" aria-label="Dashboard content">
+          <!-- Portal iris curtain — lightweight div that remounts on space switch to replay animation -->
+          <div v-if="spaceRevealKey > 0" :key="spaceRevealKey" class="portal-iris-curtain" aria-hidden="true" />
           <!-- Initial load state -->
           <div v-if="loading" class="flex flex-col items-center justify-center h-full text-muted-foreground font-text gap-3">
             <div class="h-8 w-8 animate-spin rounded-full border-2 border-muted-foreground border-t-primary" role="status">
@@ -1491,3 +1527,48 @@ onUnmounted(() => {
     </Dialog>
   </TooltipProvider>
 </template>
+
+<style>
+/* Time-of-day ambient tint — shifts over 24h, barely perceptible (3% opacity) */
+:root { --ambient-hue: 210; }
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background: radial-gradient(
+    ellipse 80% 60% at 50% 0%,
+    hsl(var(--ambient-hue) 40% 60% / 0.03) 0%,
+    transparent 70%
+  );
+  transition: background 2s ease;
+}
+
+/* Portal iris reveal — space-switch transition */
+/* The curtain starts opaque full-screen (matching page bg), iris-closes to a point, */
+/* then vanishes — revealing the newly loaded space content underneath. */
+.portal-iris-curtain {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 20;
+  background: hsl(var(--background));
+  animation: portal-iris-close 0.5s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@keyframes portal-iris-close {
+  0%   { clip-path: circle(120% at 50% 0px); opacity: 1; }
+  80%  { clip-path: circle(0%   at 50% 0px); opacity: 1; }
+  100% { clip-path: circle(0%   at 50% 0px); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .portal-iris-curtain { animation: portal-iris-fade 0.2s ease forwards; }
+  @keyframes portal-iris-fade {
+    from { opacity: 1; }
+    to   { opacity: 0; }
+  }
+}
+</style>
