@@ -24,7 +24,10 @@ Core design decisions and specifications that shaped the system.
 | [agent-names.md](agent-names.md) | Agent Names — Supported Characters | **implemented** |
 | [paude.md](paude.md) | Paude Integration for Agent Boss | **proposed** |
 | [design-docs/hexagonal-architecture.md](design-docs/hexagonal-architecture.md) | Hexagonal Architecture Migration Plan | **in-progress** |
-| [design-docs/auth-model.md](design-docs/auth-model.md) | Auth Model ADR — Phase 1 static token + Phase 2 per-agent tokens | **proposed** |
+| [design-docs/auth-model.md](design-docs/auth-model.md) | Auth Model ADR — Phase 1 static token + Phase 2 per-agent tokens | **in-progress** |
+| [design-docs/agent-compose.md](design-docs/agent-compose.md) | agent-compose.yaml — Fleet Blueprint Design Spec (TASK-098) | **implemented** |
+| [design-docs/agent-experience-surface.md](design-docs/agent-experience-surface.md) | Agent Experience Surface — spawn contract, dev loop, MCP surface | **active** |
+| [design-docs/audio-language-spec.md](design-docs/audio-language-spec.md) | Audio Language & Voice System Spec | **proposed** |
 
 ---
 
@@ -51,6 +54,7 @@ End-user and operator documentation.
 | [api-reference.md](api-reference.md) | Agent Boss — API Reference | **active** |
 | [AGENT_PROTOCOL.md](AGENT_PROTOCOL.md) | Agent Boss — HTTP Agent Protocol v1.0 | **active** |
 | [agent-migration-guide.md](agent-migration-guide.md) | Migration Guide: /raw Polling → Message Polling | **active** |
+| [fleet-guide.md](fleet-guide.md) | Fleet Guide — Export, Edit, Import (agent-compose.yaml) | **active** |
 
 ---
 
