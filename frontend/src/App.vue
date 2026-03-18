@@ -225,7 +225,7 @@ const showSettings = computed(() => false)
 const pendingDecisionCount = computed(() => {
   if (!currentSpace.value) return 0
   let count = 0
-  for (const agent of Object.values(currentSpace.value.agents)) {
+  for (const agent of Object.values(currentSpace.value.agents ?? {})) {
     const a = agent as any
     const messages = a?.messages || a?.Messages || []
     for (const msg of messages) {
@@ -468,7 +468,7 @@ watch(
 const _agentPRTracker = new Map<string, string>()
 watch(currentSpace, (space) => {
   if (!space) return
-  for (const [name, agent] of Object.entries(space.agents)) {
+  for (const [name, agent] of Object.entries(space.agents ?? {})) {
     const key = `${space.name}:${name}`
     const prevPR = _agentPRTracker.get(key)
     if (agent.pr && !prevPR) {
@@ -926,7 +926,7 @@ function setupSSE() {
     //
     // For the sidebar unread badge: patch boss.unread_count in-place so the
     // badge updates immediately without a full space fetch.
-    if (data.agent === 'boss' && currentSpace.value?.agents['boss'] && currentSpace.value.name === data.space) {
+    if (data.agent === 'boss' && currentSpace.value?.agents?.['boss'] && currentSpace.value.name === data.space) {
       const bossAgent = currentSpace.value.agents['boss']
       bossAgent.unread_count = (bossAgent.unread_count ?? 0) + 1
     }
@@ -1013,7 +1013,7 @@ function stopPolling() {
 // ── Keyboard shortcuts ─────────────────────────────────────────────
 const sortedAgentNames = computed<string[]>(() => {
   if (!currentSpace.value) return []
-  return Object.keys(currentSpace.value.agents).sort((a, b) => a.localeCompare(b))
+  return Object.keys(currentSpace.value.agents ?? {}).sort((a, b) => a.localeCompare(b))
 })
 
 function isInputFocused(): boolean {
