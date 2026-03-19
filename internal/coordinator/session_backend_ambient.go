@@ -171,16 +171,10 @@ func (b *AmbientSessionBackend) CreateSession(ctx context.Context, opts SessionC
 		// Labels for session discovery and ownership tracking.
 		labels := map[string]string{"managed-by": "agent-boss"}
 		if ao.SpaceName != "" {
-			if !validLabelValue(ao.SpaceName) {
-				return "", fmt.Errorf("create session: space name %q is not a valid Kubernetes label value (must be alphanumeric, '-', '_', or '.', max 63 chars, no spaces)", ao.SpaceName)
-			}
-			labels["boss-space"] = ao.SpaceName
+			labels["boss-space"] = sanitizeLabelValue(ao.SpaceName)
 		}
 		if ao.DisplayName != "" {
-			if !validLabelValue(ao.DisplayName) {
-				return "", fmt.Errorf("create session: agent name %q is not a valid Kubernetes label value (must be alphanumeric, '-', '_', or '.', max 63 chars, no spaces)", ao.DisplayName)
-			}
-			labels["boss-agent"] = ao.DisplayName
+			labels["boss-agent"] = sanitizeLabelValue(ao.DisplayName)
 		}
 		body["labels"] = labels
 	} else if opts.SessionID != "" {

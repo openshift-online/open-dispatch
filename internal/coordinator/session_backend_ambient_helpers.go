@@ -71,30 +71,28 @@ func generateMsgID() string {
 
 
 
-// validLabelValue reports whether s is a valid Kubernetes label value.
-// A valid label value must be 63 characters or less, and must match
-// (([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])? — i.e. empty or
-// alphanumeric at start/end with [-_.a-zA-Z0-9] in between.
-func validLabelValue(s string) bool {
-	if len(s) > 63 {
-		return false
-	}
+// sanitizeLabelValue converts an arbitrary string into a valid Kubernetes label
+// value. Spaces are replaced with '-'; any character that is not alphanumeric,
+// '-', '_', or '.' is dropped. Leading/trailing non-alphanumeric characters are
+// trimmed, and the result is truncated to 63 characters.
+func sanitizeLabelValue(s string) string {
 	if s == "" {
-		return true
+		return ""
 	}
-	for i, c := range s {
-		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') {
-			continue
+	var b strings.Builder
+	for _, c := range s {
+		switch {
+		case (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.':
+			b.WriteRune(c)
+		case c == ' ':
+			b.WriteByte('-')
 		}
-		if c == '-' || c == '_' || c == '.' {
-			if i == 0 || i == len(s)-1 {
-				return false // must start/end with alphanumeric
-			}
-			continue
-		}
-		return false
 	}
-	return true
+	v := strings.Trim(b.String(), "-_.")
+	if len(v) > 63 {
+		v = strings.TrimRight(v[:63], "-_.")
+	}
+	return v
 }
 
 // lastMessagesSnapshot finds the last MESSAGES_SNAPSHOT event in aguiEvents

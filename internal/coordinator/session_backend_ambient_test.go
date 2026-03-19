@@ -687,64 +687,30 @@ func TestAmbientSessionPath(t *testing.T) {
 	}
 }
 
-func TestAmbientCreateSessionRejectsInvalidLabelValue(t *testing.T) {
-	b := NewAmbientSessionBackend(AmbientBackendConfig{
-		APIURL:  "http://localhost",
-		Project: "test",
-	})
-
-	// Space name with spaces is invalid for K8s labels.
-	_, err := b.CreateSession(context.Background(), SessionCreateOpts{
-		Command: "test",
-		BackendOpts: AmbientCreateOpts{
-			DisplayName: "agent1",
-			SpaceName:   "My Space Name",
-		},
-	})
-	if err == nil {
-		t.Fatal("expected error for space name with spaces")
-	}
-	if !strings.Contains(err.Error(), "not a valid Kubernetes label") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// Agent name with spaces is also invalid.
-	_, err = b.CreateSession(context.Background(), SessionCreateOpts{
-		Command: "test",
-		BackendOpts: AmbientCreateOpts{
-			DisplayName: "my agent",
-			SpaceName:   "valid-space",
-		},
-	})
-	if err == nil {
-		t.Fatal("expected error for agent name with spaces")
-	}
-}
-
-func TestValidLabelValue(t *testing.T) {
+func TestSanitizeLabelValue(t *testing.T) {
 	tests := []struct {
-		value string
-		valid bool
+		input string
+		want  string
 	}{
-		{"", true},
-		{"simple", true},
-		{"with-hyphens", true},
-		{"with_underscores", true},
-		{"with.dots", true},
-		{"MixedCase123", true},
-		{"a", true},
-		{"has spaces", false},
-		{"-starts-with-hyphen", false},
-		{"ends-with-hyphen-", false},
-		{"has/slash", false},
-		{"has:colon", false},
-		{strings.Repeat("a", 63), true},
-		{strings.Repeat("a", 64), false},
+		{"", ""},
+		{"simple", "simple"},
+		{"with-hyphens", "with-hyphens"},
+		{"with_underscores", "with_underscores"},
+		{"with.dots", "with.dots"},
+		{"MixedCase123", "MixedCase123"},
+		{"has spaces", "has-spaces"},
+		{"ROSA DevEnv E2E", "ROSA-DevEnv-E2E"},
+		{"-starts-with-hyphen", "starts-with-hyphen"},
+		{"ends-with-hyphen-", "ends-with-hyphen"},
+		{"has/slash", "hasslash"},
+		{"has:colon", "hascolon"},
+		{strings.Repeat("a", 63), strings.Repeat("a", 63)},
+		{strings.Repeat("a", 64), strings.Repeat("a", 63)},
 	}
 	for _, tt := range tests {
-		t.Run(tt.value, func(t *testing.T) {
-			if got := validLabelValue(tt.value); got != tt.valid {
-				t.Errorf("validLabelValue(%q) = %v, want %v", tt.value, got, tt.valid)
+		t.Run(tt.input, func(t *testing.T) {
+			if got := sanitizeLabelValue(tt.input); got != tt.want {
+				t.Errorf("sanitizeLabelValue(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
 	}

@@ -326,30 +326,36 @@ func TestHandlerAmbientSpawnEnvVarSplit(t *testing.T) {
 	}
 }
 
-func TestHandlerAmbientSpawnLabelValidation(t *testing.T) {
+func TestHandlerAmbientSpawnLabelSanitization(t *testing.T) {
 	mock := newAmbientAPIMock("test-project")
 	_, base := mustStartAmbientServer(t, mock)
 
+	// Space name with spaces should succeed — label value is sanitized, not rejected.
 	resp := postJSON(t, base+"/spaces/has spaces/agent/worker1/spawn", map[string]any{
 		"backend": "ambient",
 	})
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
 
-	// Should fail because "has spaces" is not a valid K8s label value.
-	if resp.StatusCode == http.StatusAccepted {
-		t.Fatal("expected error for space name with spaces, got 202")
-	}
-	if !strings.Contains(string(body), "not a valid Kubernetes label") {
-		t.Errorf("expected label validation error, got: %s", body)
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("expected 202 for space name with spaces, got %d: %s", resp.StatusCode, body)
 	}
 
-	// Verify no create call was made to the mock.
+	// Verify the create call was made and the label was sanitized.
+	var result map[string]any
+	if err := json.Unmarshal(body, &result); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	sessionID, _ := result["session_id"].(string)
+
 	mock.mu.Lock()
 	defer mock.mu.Unlock()
-	creates := mock.findCalls(http.MethodPost, "agentic-sessions")
-	if len(creates) != 0 {
-		t.Errorf("expected 0 create calls (validation should prevent API call), got %d", len(creates))
+	cr, ok := mock.sessions[sessionID]
+	if !ok {
+		t.Fatalf("session %q not found in mock", sessionID)
+	}
+	if cr.Metadata.Labels["boss-space"] != "has-spaces" {
+		t.Errorf("expected boss-space=has-spaces, got %q", cr.Metadata.Labels["boss-space"])
 	}
 }
 
