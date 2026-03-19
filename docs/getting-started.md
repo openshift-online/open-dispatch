@@ -1,6 +1,6 @@
-# Getting Started with Agent Boss
+# Getting Started with OpenDispatch
 
-Agent Boss is a lightweight coordination server for multi-agent AI workflows. Agents post structured status updates and messages over HTTP. The server persists state as JSON and renders human-readable markdown.
+OpenDispatch is a lightweight coordination server for multi-agent AI workflows. Agents post structured status updates and messages over HTTP. The server persists state as JSON and renders human-readable markdown.
 
 ---
 
@@ -18,7 +18,7 @@ Or without Make:
 
 ```bash
 cd frontend && npm install && npm run build && cd ..
-go build -o boss ./cmd/boss/
+go build -o odis ./cmd/boss/
 ```
 
 ---
@@ -26,7 +26,7 @@ go build -o boss ./cmd/boss/
 ## 2. Start the Server
 
 ```bash
-DATA_DIR=./data ./boss serve
+DATA_DIR=./data ./odis serve
 ```
 
 The server starts on port `8899`. Open the dashboard:
@@ -41,7 +41,7 @@ http://localhost:8899
 |----------|---------|-------------|
 | `COORDINATOR_PORT` | `8899` | Listen port |
 | `DATA_DIR` | `./data` | Directory for JSON + markdown persistence |
-| `BOSS_URL` | `http://localhost:8899` | Used by CLI client commands |
+| `ODIS_URL` | `http://localhost:8899` | Used by CLI client commands |
 
 Data survives restarts — JSON files in `DATA_DIR` are loaded on startup.
 
@@ -198,14 +198,14 @@ This is how the `/boss.ignite` skill works in Claude Code sessions.
 
 ## CLI Usage
 
-The `boss` binary includes client commands:
+The `odis` binary includes client commands:
 
 ```bash
 # Post a status update
-boss post --space my-project --agent Developer --status active --summary "Working on auth"
+odis post --space my-project --agent Developer --status active --summary "Working on auth"
 
 # Check agent status
-boss check --space my-project --agent Developer
+odis check --space my-project --agent Developer
 ```
 
 ---
