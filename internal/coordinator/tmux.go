@@ -739,8 +739,22 @@ func (s *Server) SingleAgentCheckIn(spaceName, agentName, checkModel, workModel 
 		return result
 	}
 	if !backend.SessionExists(sessionID) {
-		result.Skipped = append(result.Skipped, canonical+" (session not found: "+sessionID+")")
-		return result
+		// Auto-resume: if this is an Ambient session that stopped due to
+		// inactivity, restart it so the agent can receive the message.
+		if backend.Name() == "ambient" {
+			s.logEvent(fmt.Sprintf("[%s/%s] auto-resume: session %s not found, attempting restart", spaceName, canonical, sessionID))
+			newSessionID, _, err := s.restartAgentService(spaceName, canonical, spawnRequest{})
+			if err != nil {
+				result.Errors = append(result.Errors, fmt.Sprintf("%s: auto-resume failed: %v", canonical, err))
+				return result
+			}
+			s.logEvent(fmt.Sprintf("[%s/%s] auto-resume: restarted in session %s", spaceName, canonical, newSessionID))
+			sessionID = newSessionID
+			// Session was just created, it should be idle; fall through to check-in.
+		} else {
+			result.Skipped = append(result.Skipped, canonical+" (session not found: "+sessionID+")")
+			return result
+		}
 	}
 	if !backend.IsIdle(sessionID) {
 		result.Skipped = append(result.Skipped, canonical+" (busy)")
