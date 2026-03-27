@@ -41,7 +41,7 @@ When the OpenDispatch coordinator is configured with `AMBIENT_WORKFLOW_*` enviro
   "activeWorkflow": {
     "gitUrl": "https://github.com/jsell-rh/agent-boss",
     "branch": "main",
-    "path": "ambient-workflow"
+    "path": "internal/ambient-workflow"
   },
   "environmentVariables": {
     "ODIS_URL": "https://odispatch.apps.example.com",
@@ -53,7 +53,7 @@ When the OpenDispatch coordinator is configured with `AMBIENT_WORKFLOW_*` enviro
 ## Directory Structure
 
 ```
-ambient-workflow/
+internal/ambient-workflow/
   .ambient/
     ambient.json          # Workflow manifest (name, systemPrompt, startupPrompt)
   .claude/
