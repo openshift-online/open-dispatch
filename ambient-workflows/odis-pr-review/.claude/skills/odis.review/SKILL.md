@@ -1,7 +1,6 @@
 ---
 name: odis-review
 description: Reviews code changes in the OpenDispatch project by spawning specialized sub-agents (general, tmux backend, ambient backend, quality) in parallel. Use when reviewing a PR, commit, set of commits, files, or any described change. Triggers on review requests, PR links, or "review this change."
-disable-model-invocation: true
 argument-hint: <PR-link | commit-SHA | file-path | description>
 ---
 
