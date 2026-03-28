@@ -36,6 +36,8 @@ func (b *TmuxSessionBackend) Name() string { return "tmux" }
 
 func (b *TmuxSessionBackend) Available() bool { return tmuxAvailable() }
 
+func (b *TmuxSessionBackend) SupportsAutoResume() bool { return false }
+
 func (b *TmuxSessionBackend) CreateSession(ctx context.Context, opts SessionCreateOpts) (string, error) {
 	sessionID := opts.SessionID
 	command := opts.Command

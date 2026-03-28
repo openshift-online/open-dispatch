@@ -705,6 +705,32 @@ func (s *Server) restartAgentService(spaceName, agentName string, req spawnReque
 	return sessionID, canonical, nil
 }
 
+// maybeAutoResumeAgent checks if a session should be auto-resumed and restarts it if needed.
+// Returns the (possibly new) sessionID, whether a restart occurred, and any error.
+// Auto-resume only applies to backends that support it (checked via SupportsAutoResume()).
+func (s *Server) maybeAutoResumeAgent(spaceName, canonical, sessionID string, backend SessionBackend) (string, bool, error) {
+	// Only auto-resume if the backend supports it
+	if !backend.SupportsAutoResume() {
+		return sessionID, false, nil
+	}
+
+	// Check if session exists
+	if backend.SessionExists(sessionID) {
+		return sessionID, false, nil
+	}
+
+	// Session is missing and backend supports auto-resume — restart it
+	s.logEvent(fmt.Sprintf("[%s/%s] auto-resume: session %s not found, attempting restart", spaceName, canonical, sessionID))
+
+	newSessionID, _, err := s.restartAgentService(spaceName, canonical, spawnRequest{})
+	if err != nil {
+		return sessionID, false, fmt.Errorf("auto-resume failed: %w", err)
+	}
+
+	s.logEvent(fmt.Sprintf("[%s/%s] auto-resume: restarted in session %s", spaceName, canonical, newSessionID))
+	return newSessionID, true, nil
+}
+
 // introspectResponse is returned by GET /spaces/{space}/agent/{name}/introspect.
 type introspectResponse struct {
 	Agent          string    `json:"agent"`
