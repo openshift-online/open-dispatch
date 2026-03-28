@@ -9,4 +9,4 @@ workflows are and how they are developed.
 
 ### [odis-pr-review](odis-pr-review/)
 
-Automated code review for OpenDispatch pull requests. Given a PR number or GitHub URL, spawns four specialized reviewers in parallel (general, tmux backend, ambient backend, quality), aggregates findings by severity (Critical, Important, Suggestion, Informational), and posts the results as a comment on the PR.
+Automated code review for OpenDispatch pull requests. Given a PR number or GitHub URL, spawns four specialized reviewers in parallel (general, tmux backend, ambient backend, quality), aggregates findings by severity (Critical, Concern, Informational), and posts the results as a comment on the PR.

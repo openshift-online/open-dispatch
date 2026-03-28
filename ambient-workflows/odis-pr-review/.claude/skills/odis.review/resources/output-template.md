@@ -41,8 +41,8 @@ Every finding must be tagged with exactly one severity:
 
 ## Verdict Criteria
 
-- **APPROVE** — No critical or concern findings. Change is ready to merge.
-- **CONCERNS** — No critical findings, but one or more concern findings that should be addressed or explicitly acknowledged before merge.
+- **APPROVE** — No critical findings. Concern and informational findings may exist but are at the author's discretion. Change is ready to merge.
+- **CONCERNS** — No critical findings, but one or more concern findings that the reviewer believes are significant enough to warrant discussion before merge.
 - **CHANGES REQUESTED** — One or more critical findings. Change should not merge until critical items are resolved.
 
 ## Aggregated Output Format
@@ -79,3 +79,4 @@ findings and positives collapsed inside <details>.}
 - Keep each section concise. Reviewers should not repeat each other's findings.
 - If a reviewer has no findings at all, the verdict is APPROVE and the summary should say "No concerns within this reviewer's scope."
 - The severity counts in the aggregated summary are totals across ALL reviewers.
+- The overall verdict is strictly the most severe verdict from any individual reviewer. Do NOT re-derive the overall verdict from aggregate severity counts — a reviewer may APPROVE while noting concerns that are at the author's discretion.

@@ -12,7 +12,7 @@ Given a PR number or GitHub URL, this workflow:
    - **Tmux Backend** — tmux session lifecycle, idle/approval detection, terminal interaction
    - **Ambient Backend** — Ambient API integration, cloud sessions, AG-UI protocol
    - **Quality** — linting rules, testing standards, security, code conventions
-3. Aggregates findings with severity levels (Critical, Important, Suggestion, Informational)
+3. Aggregates findings with severity levels (Critical, Concern, Informational)
 4. Posts the review as a comment on the PR
 
 ## Usage
@@ -32,15 +32,14 @@ https://github.com/openshift-online/open-dispatch/pull/123
 | Severity | Meaning | Merge Impact |
 |----------|---------|-------------|
 | Critical | Must fix before merge | Blocks merge |
-| Important | Suggested change, author's discretion | Author decides |
-| Suggestion | Could be better, ok to proceed | Non-blocking |
+| Concern | Worth addressing, author's discretion | Author decides |
 | Informational | Awareness only | Non-blocking |
 
 ## Verdicts
 
-- **APPROVE** — No critical or important findings
-- **CONCERNS** — Important findings but no blockers
-- **CHANGES REQUESTED** — Critical findings that block merge
+- **APPROVE** — No critical findings. Concerns may exist but are at the author's discretion.
+- **CONCERNS** — Concerns significant enough to warrant discussion before merge.
+- **CHANGES REQUESTED** — Critical findings that block merge.
 
 ## Structure
 
