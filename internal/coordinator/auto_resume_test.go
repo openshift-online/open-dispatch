@@ -23,6 +23,7 @@ func newMockAmbientBackend() *mockAmbientBackend {
 
 func (b *mockAmbientBackend) Name() string { return "ambient" }
 func (b *mockAmbientBackend) Available() bool { return true }
+func (b *mockAmbientBackend) SupportsAutoResume() bool { return true }
 
 func (b *mockAmbientBackend) CreateSession(_ context.Context, opts SessionCreateOpts) (string, error) {
 	b.mu.Lock()
@@ -73,9 +74,9 @@ func (b *mockAmbientBackend) Interrupt(_ context.Context, _ string) error { retu
 func (b *mockAmbientBackend) DiscoverSessions() (map[string]string, error) { return nil, nil }
 
 // TestAutoResumeAmbientSession verifies that when an Ambient session is stopped
-// (SessionExists returns false), the auto-resume logic kicks in during message delivery.
-// This test verifies the restart is triggered, but doesn't wait for the full check-in
-// to avoid test timeouts.
+// (SessionExists returns false), the restartAgentService call correctly creates a new
+// session. This test directly exercises restartAgentService rather than the full
+// SingleAgentCheckIn flow to avoid test timeouts.
 func TestAutoResumeAmbientSession(t *testing.T) {
 	srv, cleanup := mustStartServer(t)
 	defer cleanup()
@@ -156,10 +157,14 @@ func TestAutoResumeAmbientSession(t *testing.T) {
 	if agent.SessionID != newSessionID {
 		t.Errorf("agent session ID = %q, want %q", agent.SessionID, newSessionID)
 	}
+	if agent.BackendType != "ambient" {
+		t.Errorf("agent backend type = %q, want %q", agent.BackendType, "ambient")
+	}
 }
 
-// TestAutoResumeOnlyForAmbient verifies that auto-resume only applies to
-// Ambient sessions, not tmux sessions (which should skip).
+// TestAutoResumeOnlyForAmbient verifies that auto-resume currently only applies to
+// backends that report SupportsAutoResume() == true (currently Ambient), not tmux sessions
+// (which should skip). This behavior is enforced via the backend capability interface.
 func TestAutoResumeOnlyForAmbient(t *testing.T) {
 	srv, cleanup := mustStartServer(t)
 	defer cleanup()
@@ -200,39 +205,14 @@ func TestAutoResumeOnlyForAmbient(t *testing.T) {
 	}
 }
 
-// TestAutoResumeFailureHandling verifies that if auto-resume fails,
-// the error is properly reported.
-func TestAutoResumeFailureHandling(t *testing.T) {
+// TestSingleAgentCheckInNonexistentAgent verifies that calling SingleAgentCheckIn
+// on a nonexistent agent returns an appropriate error.
+func TestSingleAgentCheckInNonexistentAgent(t *testing.T) {
 	srv, cleanup := mustStartServer(t)
 	defer cleanup()
 
-	space := "TestResumeFailure"
-	agentName := "failing-agent"
+	space := "TestNonexistent"
 
-	// Install mock ambient backend
-	mockBackend := newMockAmbientBackend()
-	srv.backends = map[string]SessionBackend{"ambient": mockBackend}
-	srv.defaultBackend = "ambient"
-
-	// Create an agent without a config (will cause restart to fail)
-	srv.mu.Lock()
-	ks := srv.getOrCreateSpaceLocked(space)
-	ks.setAgentStatus(agentName, &AgentUpdate{
-		Status:      StatusIdle,
-		Summary:     agentName + ": ready",
-		SessionID:   "stopped-session",
-		BackendType: "ambient",
-	})
-	// Deliberately don't set AgentConfig to trigger a restart path that might fail
-	// Actually, the restart should still work, so let's make the backend unavailable instead
-	srv.mu.Unlock()
-
-	// Make backend unavailable to simulate failure
-	mockBackend.mu.Lock()
-	mockBackend.sessions = nil // This will cause issues
-	mockBackend.mu.Unlock()
-
-	// Actually, let's test a different failure scenario: agent not found
 	// Call SingleAgentCheckIn on non-existent agent
 	result := srv.SingleAgentCheckIn(space, "nonexistent", "", "")
 
