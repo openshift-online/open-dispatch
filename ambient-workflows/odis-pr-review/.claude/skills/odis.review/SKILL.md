@@ -63,7 +63,7 @@ Each sub-agent prompt must include:
 Once all sub-agents return:
 1. Read the output template from `${CLAUDE_SKILL_DIR}/resources/output-template.md`
 2. Combine findings into the aggregated output format
-3. Tally severity counts across all reviewers: Critical, Important, Suggestion, Informational
+3. Tally severity counts across all reviewers: Critical, Concern, Informational
 4. Set the overall verdict to the most severe verdict from any reviewer (CHANGES REQUESTED > CONCERNS > APPROVE)
 5. Write a synthesis paragraph highlighting the most important findings across all reviewers
 6. Include each reviewer's section in order: General, Tmux Backend, Ambient Backend, Quality
