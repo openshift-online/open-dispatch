@@ -13,5 +13,5 @@ data:
   AMBIENT_SKIP_TLS_VERIFY: "true"
   AMBIENT_WORKFLOW_URL: https://github.com/jsell-rh/agent-boss
   AMBIENT_WORKFLOW_BRANCH: main
-  AMBIENT_WORKFLOW_PATH: ambient-workflow
+  AMBIENT_WORKFLOW_PATH: internal/ambient-workflow
   COORDINATOR_EXTERNAL_URL: https://jsell-agent-boss.apps.okd1.timslab
