@@ -131,6 +131,8 @@ func (b *AmbientSessionBackend) Available() bool {
 	return avail
 }
 
+func (b *AmbientSessionBackend) SupportsAutoResume() bool { return true }
+
 func (b *AmbientSessionBackend) setCachedAvail(v bool) {
 	b.availMu.Lock()
 	b.availCached = v

@@ -15,6 +15,10 @@ type SessionBackend interface {
 	// Available reports whether this backend is operational.
 	Available() bool
 
+	// SupportsAutoResume reports whether this backend supports automatic
+	// session resumption when a stopped session receives a message.
+	SupportsAutoResume() bool
+
 	// --- Lifecycle ---
 
 	// CreateSession creates a new session and launches the given command.

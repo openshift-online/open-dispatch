@@ -738,7 +738,17 @@ func (s *Server) SingleAgentCheckIn(spaceName, agentName, checkModel, workModel 
 		result.Errors = append(result.Errors, backend.Name()+" not available")
 		return result
 	}
-	if !backend.SessionExists(sessionID) {
+
+	// Attempt auto-resume if the session is missing and the backend supports it
+	newSessionID, resumed, err := s.maybeAutoResumeAgent(spaceName, canonical, sessionID, backend)
+	if err != nil {
+		result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", canonical, err))
+		return result
+	}
+	if resumed {
+		sessionID = newSessionID
+	} else if !backend.SessionExists(sessionID) {
+		// Session doesn't exist and wasn't auto-resumed
 		result.Skipped = append(result.Skipped, canonical+" (session not found: "+sessionID+")")
 		return result
 	}

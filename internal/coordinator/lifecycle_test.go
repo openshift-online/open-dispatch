@@ -21,6 +21,7 @@ func newSpawnCapturingBackend() *spawnCapturingBackend {
 
 func (b *spawnCapturingBackend) Name() string { return "tmux" }
 func (b *spawnCapturingBackend) Available() bool { return true }
+func (b *spawnCapturingBackend) SupportsAutoResume() bool { return false }
 func (b *spawnCapturingBackend) CreateSession(_ context.Context, opts SessionCreateOpts) (string, error) {
 	b.captured <- opts
 	return "mock-session-id", nil
