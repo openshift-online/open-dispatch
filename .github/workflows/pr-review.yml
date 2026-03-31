@@ -1,0 +1,45 @@
+name: PR Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+
+jobs:
+  review:
+    name: Ambient PR Review
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
+    steps:
+      - name: Trigger ambient review session
+        env:
+          AMBIENT_TOKEN: ${{ secrets.AMBIENT_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+          REPO: ${{ github.repository }}
+        run: |
+          curl -fS -X POST \
+            "https://backend-route-ambient-code.apps.rosa.vteam-uat.0ksl.p3.openshiftapps.com/api/projects/open-dispatch-actions/agentic-sessions" \
+            -H "Authorization: Bearer ${AMBIENT_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n \
+              --arg prompt "/odis-review ${PR_NUMBER}" \
+              --arg name "pr-review-${PR_NUMBER}" \
+              --arg gitUrl "https://github.com/${REPO}.git" \
+              --arg branch "${HEAD_BRANCH}" \
+              '{
+                initialPrompt: $prompt,
+                runnerType: "claude-agent-sdk",
+                timeout: 900,
+                displayName: $name,
+                activeWorkflow: {
+                  gitUrl: $gitUrl,
+                  branch: $branch,
+                  path: "ambient-workflows/odis-pr-review"
+                },
+                labels: {
+                  "managed-by": "odispatch",
+                  "odis-agent": "pr-reviewer"
+                }
+              }'
+            )"
