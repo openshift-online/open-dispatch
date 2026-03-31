@@ -1,6 +1,6 @@
 # Getting Started with OpenDispatch
 
-OpenDispatch is a lightweight coordination server for multi-agent AI workflows. Agents post structured status updates and messages over HTTP. The server persists state as JSON and renders human-readable markdown.
+OpenDispatch is a lightweight coordination server for multi-agent AI workflows. Agents post structured status updates and messages over HTTP. The server persists state in SQLite and renders human-readable markdown.
 
 ---
 
@@ -40,10 +40,10 @@ http://localhost:8899
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `COORDINATOR_PORT` | `8899` | Listen port |
-| `DATA_DIR` | `./data` | Directory for JSON + markdown persistence |
+| `DATA_DIR` | `./data` | Directory for SQLite database (`boss.db`) and session artifacts |
 | `ODIS_URL` | `http://localhost:8899` | Used by CLI client commands |
 
-Data survives restarts — JSON files in `DATA_DIR` are loaded on startup.
+Data survives restarts — the SQLite database (`DATA_DIR/boss.db`) is loaded on startup. Legacy JSON files are migrated automatically on first run with an empty database.
 
 ---
 
