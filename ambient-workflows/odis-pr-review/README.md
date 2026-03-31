@@ -15,7 +15,11 @@ Given a PR number or GitHub URL, this workflow:
 3. Aggregates findings with severity levels (Critical, Concern, Informational)
 4. Posts the review as a comment on the PR
 
-## Usage
+## Automatic Trigger
+
+This workflow is triggered automatically via GitHub Actions when a PR is opened or updated against `main`. See `.github/workflows/pr-review.yml`.
+
+## Manual Usage
 
 Provide a PR number or URL when prompted:
 
