@@ -22,7 +22,7 @@ jobs:
             -H "Content-Type: application/json" \
             -d "$(jq -n \
               --arg prompt "/odis-review ${PR_NUMBER}" \
-              --arg name "pr-review-${PR_NUMBER}" \
+              --arg name "pr-review-${PR_NUMBER}-$(date +%s)" \
               '{
                 initialPrompt: $prompt,
                 runnerType: "claude-agent-sdk",
