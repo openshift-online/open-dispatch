@@ -638,17 +638,33 @@ func (r *Repository) GetScheduledCheckInEvents() ([]*CheckInEvent, error) {
 }
 
 // AcquireSchedulerLock attempts to acquire the scheduler lock. Returns true if acquired.
+// Uses INSERT...ON CONFLICT to atomically acquire expired locks. The single-row table
+// pattern (id=1) ensures only one lock can exist; the WHERE clause on DO UPDATE prevents
+// stealing an active lock from another instance.
 func (r *Repository) AcquireSchedulerLock(instanceID string, duration time.Duration) (bool, error) {
 	now := time.Now()
 	expiresAt := now.Add(duration)
 
-	// Try to acquire the lock if none exists or if the current lock has expired
+	// Atomic lock acquisition: insert or update if lock is expired OR same instance.
+	// PostgreSQL: uses ON CONFLICT DO UPDATE with WHERE clause.
+	// SQLite: ON CONFLICT REPLACE doesn't support WHERE, so we delete expired locks first.
+
+	// For SQLite: clean up expired lock, then insert
+	r.db.Exec(`DELETE FROM check_in_scheduler_locks WHERE expires_at < ?`, now)
+
+	// Try to insert new lock. WHERE clause allows acquisition when:
+	// 1. Lock is expired (expires_at < NOW), OR
+	// 2. Same instance is re-acquiring (locked_by matches)
 	result := r.db.Exec(`
-		INSERT INTO check_in_scheduler_locks (locked_by, locked_at, expires_at, renewed_at)
-		SELECT ?, ?, ?, ?
-		WHERE NOT EXISTS (
-			SELECT 1 FROM check_in_scheduler_locks WHERE expires_at > ?
-		)
+		INSERT INTO check_in_scheduler_locks (id, locked_by, locked_at, expires_at, renewed_at)
+		VALUES (1, ?, ?, ?, ?)
+		ON CONFLICT (id) DO UPDATE
+		SET locked_by = EXCLUDED.locked_by,
+		    locked_at = EXCLUDED.locked_at,
+		    expires_at = EXCLUDED.expires_at,
+		    renewed_at = EXCLUDED.renewed_at
+		WHERE check_in_scheduler_locks.expires_at < ?
+		   OR check_in_scheduler_locks.locked_by = EXCLUDED.locked_by
 	`, instanceID, now, expiresAt, now, now)
 
 	if result.Error != nil {
