@@ -133,6 +133,10 @@ func (s *Scheduler) leaderLoop() {
 	// Start cron scheduler
 	s.cron.Start()
 
+	// Start retry queue processor
+	retryTicker := time.NewTicker(30 * time.Second)
+	defer retryTicker.Stop()
+
 	// Lock renewal loop
 	renewTicker := time.NewTicker(renewInterval)
 	defer renewTicker.Stop()
@@ -141,6 +145,11 @@ func (s *Scheduler) leaderLoop() {
 		select {
 		case <-s.ctx.Done():
 			return
+		case <-retryTicker.C:
+			// Process retry queue every 30 seconds
+			if err := s.processRetryQueue(); err != nil {
+				log.Printf("[check-in scheduler] error processing retry queue: %v", err)
+			}
 		case <-renewTicker.C:
 			if err := s.repo.RenewSchedulerLock(s.instanceID, lockDuration); err != nil {
 				log.Printf("[check-in scheduler] lost leader lock: %v", err)
@@ -215,26 +224,98 @@ func (s *Scheduler) triggerCheckIn(cfg *db.AgentCheckInConfig) error {
 		return fmt.Errorf("agent not found")
 	}
 
-	// Check if agent is idle (if idle_only is enabled)
-	if cfg.IdleOnly && agent.Status != "idle" {
-		log.Printf("[check-in scheduler] skipping %s/%s (status=%s, idle_only=true)",
-			cfg.SpaceName, cfg.AgentName, agent.Status)
-		s.metrics.IdleOnlySkipped.Inc()
-		return nil
-	}
+	// 3-check idle validation (if idle_only is enabled)
+	if cfg.IdleOnly {
+		// Check 1: Agent status must be "idle"
+		if agent.Status != "idle" {
+			log.Printf("[check-in scheduler] skipping %s/%s (status=%s, idle_only=true)",
+				cfg.SpaceName, cfg.AgentName, agent.Status)
+			s.metrics.IdleOnlySkipped.Inc()
+			return nil
+		}
 
-	// Check for pending check-ins (avoid duplicates within 10min window)
-	pending, err := s.repo.GetPendingCheckInEvents(10)
-	if err != nil {
-		log.Printf("[check-in scheduler] error checking pending events: %v", err)
-		// Continue anyway - don't block on this check
+		// Check 2: Agent must be idle for at least 5 minutes (300 seconds)
+		idleDuration := time.Since(agent.UpdatedAt)
+		if idleDuration < 300*time.Second {
+			log.Printf("[check-in scheduler] skipping %s/%s (idle for %v, required 5m)",
+				cfg.SpaceName, cfg.AgentName, idleDuration)
+			s.metrics.IdleOnlySkipped.Inc()
+			return nil
+		}
+
+		// Check 3: No pending check-ins within 10-minute window
+		pending, err := s.repo.GetPendingCheckInEvents(10)
+		if err != nil {
+			log.Printf("[check-in scheduler] error checking pending events: %v", err)
+			// Continue anyway - don't block on this check
+		} else {
+			for _, evt := range pending {
+				if evt.AgentName == cfg.AgentName && evt.SpaceName == cfg.SpaceName {
+					log.Printf("[check-in scheduler] skipping %s/%s (pending check-in exists)",
+						cfg.SpaceName, cfg.AgentName)
+					s.metrics.DuplicateSkipped.Inc()
+					return nil
+				}
+			}
+		}
+
+		// 100ms debounce before message send
+		time.Sleep(100 * time.Millisecond)
+
+		// Re-validate all 3 checks after debounce
+		agent, err = s.repo.GetAgent(cfg.SpaceName, cfg.AgentName)
+		if err != nil {
+			return fmt.Errorf("re-validate agent: %w", err)
+		}
+		if agent == nil {
+			return fmt.Errorf("agent not found on re-validation")
+		}
+
+		// Re-check 1: Status still idle
+		if agent.Status != "idle" {
+			log.Printf("[check-in scheduler] skipping %s/%s (status changed to %s after debounce)",
+				cfg.SpaceName, cfg.AgentName, agent.Status)
+			s.metrics.IdleOnlySkipped.Inc()
+			return nil
+		}
+
+		// Re-check 2: Still idle for at least 5 minutes
+		idleDuration = time.Since(agent.UpdatedAt)
+		if idleDuration < 300*time.Second {
+			log.Printf("[check-in scheduler] skipping %s/%s (idle duration %v after debounce)",
+				cfg.SpaceName, cfg.AgentName, idleDuration)
+			s.metrics.IdleOnlySkipped.Inc()
+			return nil
+		}
+
+		// Re-check 3: No new pending check-ins appeared
+		pending, err = s.repo.GetPendingCheckInEvents(10)
+		if err != nil {
+			log.Printf("[check-in scheduler] error re-checking pending events: %v", err)
+		} else {
+			for _, evt := range pending {
+				if evt.AgentName == cfg.AgentName && evt.SpaceName == cfg.SpaceName {
+					log.Printf("[check-in scheduler] skipping %s/%s (pending check-in appeared after debounce)",
+						cfg.SpaceName, cfg.AgentName)
+					s.metrics.DuplicateSkipped.Inc()
+					return nil
+				}
+			}
+		}
 	} else {
-		for _, evt := range pending {
-			if evt.AgentName == cfg.AgentName && evt.SpaceName == cfg.SpaceName {
-				log.Printf("[check-in scheduler] skipping %s/%s (pending check-in exists)",
-					cfg.SpaceName, cfg.AgentName)
-				s.metrics.DuplicateSkipped.Inc()
-				return nil
+		// When idle_only is false, still check for duplicate pending check-ins
+		pending, err := s.repo.GetPendingCheckInEvents(10)
+		if err != nil {
+			log.Printf("[check-in scheduler] error checking pending events: %v", err)
+			// Continue anyway - don't block on this check
+		} else {
+			for _, evt := range pending {
+				if evt.AgentName == cfg.AgentName && evt.SpaceName == cfg.SpaceName {
+					log.Printf("[check-in scheduler] skipping %s/%s (pending check-in exists)",
+						cfg.SpaceName, cfg.AgentName)
+					s.metrics.DuplicateSkipped.Inc()
+					return nil
+				}
 			}
 		}
 	}
@@ -307,4 +388,66 @@ func (s *Scheduler) ReloadSchedules() error {
 // GetMetrics returns the metrics instance for sharing with response tracker.
 func (s *Scheduler) GetMetrics() *Metrics {
 	return s.metrics
+}
+
+// processRetryQueue checks for scheduled check-in events that are ready to trigger
+// and sends their messages. This handles retry events created by the response tracker.
+func (s *Scheduler) processRetryQueue() error {
+	events, err := s.repo.GetScheduledCheckInEvents()
+	if err != nil {
+		return fmt.Errorf("get scheduled events: %w", err)
+	}
+
+	if len(events) == 0 {
+		return nil
+	}
+
+	log.Printf("[check-in scheduler] processing %d scheduled retry events", len(events))
+
+	for _, event := range events {
+		// Get the agent's current status
+		agent, err := s.repo.GetAgent(event.SpaceName, event.AgentName)
+		if err != nil {
+			log.Printf("[check-in scheduler] error getting agent %s/%s for retry: %v",
+				event.SpaceName, event.AgentName, err)
+			continue
+		}
+		if agent == nil {
+			log.Printf("[check-in scheduler] agent %s/%s not found for retry event %s",
+				event.SpaceName, event.AgentName, event.ID)
+			continue
+		}
+
+		// Update event with current agent status and triggered time
+		event.AgentStatus = agent.Status
+		event.TriggeredAt = time.Now().UTC()
+
+		// Send check-in message
+		if s.sendMessage != nil {
+			message := fmt.Sprintf("🔔 Scheduled check-in (retry %d). Please confirm you're operational by posting a status update.", event.RetryCount)
+			if err := s.sendMessage(event.SpaceName, event.AgentName, message); err != nil {
+				log.Printf("[check-in scheduler] failed to send retry message to %s/%s: %v",
+					event.SpaceName, event.AgentName, err)
+				event.ErrorMessage = err.Error()
+				event.MessageSent = false
+				s.metrics.MessageDeliveryFailures.Inc()
+			} else {
+				event.MessageSent = true
+				event.MessageID = fmt.Sprintf("retry-%s", event.ID)
+			}
+		} else {
+			event.ErrorMessage = "message sender not configured"
+			s.metrics.MessageDeliveryFailures.Inc()
+		}
+
+		// Update event with message status
+		if err := s.repo.UpdateCheckInEvent(event); err != nil {
+			log.Printf("[check-in scheduler] error updating retry event %s: %v", event.ID, err)
+		}
+
+		log.Printf("[check-in scheduler] triggered retry check-in for %s/%s (event %s, retry %d)",
+			event.SpaceName, event.AgentName, event.ID, event.RetryCount)
+	}
+
+	return nil
 }

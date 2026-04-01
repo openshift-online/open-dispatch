@@ -628,6 +628,15 @@ func (r *Repository) GetPendingCheckInEvents(lookbackMinutes int) ([]*CheckInEve
 		true, false, cutoff).Find(&events).Error
 }
 
+// GetScheduledCheckInEvents returns check-in events that are scheduled to trigger now or in the past,
+// but have not yet sent their message. Used for retry queue processing.
+func (r *Repository) GetScheduledCheckInEvents() ([]*CheckInEvent, error) {
+	var events []*CheckInEvent
+	now := time.Now()
+	return events, r.db.Where("scheduled_at <= ? AND message_sent = ? AND response_received = ?",
+		now, false, false).Order("scheduled_at ASC").Find(&events).Error
+}
+
 // AcquireSchedulerLock attempts to acquire the scheduler lock. Returns true if acquired.
 func (r *Repository) AcquireSchedulerLock(instanceID string, duration time.Duration) (bool, error) {
 	now := time.Now()

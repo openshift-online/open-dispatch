@@ -123,6 +123,69 @@ func migrate(db *gorm.DB) error {
 		)
 		WHERE status_changed_at IS NULL OR status_changed_at = '0001-01-01 00:00:00+00:00' OR status_changed_at = ''`)
 
+	// Apply CHECK constraints for check-in tables (idempotent - safe to run on every startup).
+	if err := migrateCheckInConstraints(db); err != nil {
+		return fmt.Errorf("migrate check-in constraints: %w", err)
+	}
+
+	return nil
+}
+
+// migrateCheckInConstraints adds CHECK constraints to check-in tables.
+// These constraints enforce data integrity and are not supported by GORM tags.
+// The migration is idempotent and safe to run multiple times.
+func migrateCheckInConstraints(db *gorm.DB) error {
+	// Get database type to determine SQL dialect
+	dbType := os.Getenv("DB_TYPE")
+	if dbType == "" {
+		dbType = "sqlite"
+	}
+
+	// For PostgreSQL, we can check if constraints exist before adding them
+	if dbType == "postgres" {
+		// Check and add constraints for agent_check_in_configs and check_in_events
+		constraints := []struct {
+			table      string
+			name       string
+			definition string
+		}{
+			{"agent_check_in_configs", "chk_timeout_seconds_positive", "CHECK (timeout_seconds >= 0)"},
+			{"agent_check_in_configs", "chk_retry_attempts_non_negative", "CHECK (retry_attempts >= 0)"},
+			{"agent_check_in_configs", "chk_retry_delay_seconds_positive", "CHECK (retry_delay_seconds >= 0)"},
+			{"check_in_events", "chk_retry_count_non_negative", "CHECK (retry_count >= 0)"},
+			{"check_in_events", "chk_latency_non_negative", "CHECK (response_latency_ms IS NULL OR response_latency_ms >= 0)"},
+			{"check_in_events", "chk_response_consistency", "CHECK ((response_received = FALSE AND response_at IS NULL) OR (response_received = TRUE AND response_at IS NOT NULL))"},
+		}
+
+		for _, c := range constraints {
+			// Check if constraint exists
+			var exists bool
+			err := db.Raw(`
+				SELECT EXISTS (
+					SELECT 1 FROM pg_constraint
+					WHERE conname = ? AND conrelid = ?::regclass
+				)
+			`, c.name, c.table).Scan(&exists).Error
+			if err != nil {
+				return fmt.Errorf("check constraint %s existence: %w", c.name, err)
+			}
+
+			// Add constraint if it doesn't exist
+			if !exists {
+				sql := fmt.Sprintf("ALTER TABLE %s ADD CONSTRAINT %s %s", c.table, c.name, c.definition)
+				if err := db.Exec(sql).Error; err != nil {
+					return fmt.Errorf("add constraint %s: %w", c.name, err)
+				}
+			}
+		}
+	}
+
+	// For SQLite, constraints must be added during table creation or via table recreation.
+	// Since GORM AutoMigrate already created the tables, we would need to recreate them.
+	// SQLite doesn't support ALTER TABLE ADD CONSTRAINT for CHECK constraints.
+	// For now, we skip SQLite CHECK constraints as they're primarily for production (PostgreSQL).
+	// Application-level validation in handlers provides the same protection for SQLite.
+
 	return nil
 }
 

@@ -94,27 +94,45 @@ func (rt *ResponseTracker) CheckPendingEvents() error {
 			if now.Sub(event.TriggeredAt) > timeoutDuration {
 				// Timeout exceeded - check if we should retry
 				if event.RetryCount < cfg.RetryAttempts {
-					// Schedule retry with exponential backoff
+					// Calculate retry delay with exponential backoff: 1x, 2x, 4x
 					retryDelay := time.Duration(cfg.RetryDelaySeconds) * time.Second
-					// Exponential backoff: 1x, 2x, 4x
 					backoffMultiplier := 1 << event.RetryCount // 2^retryCount
 					retryDelay = retryDelay * time.Duration(backoffMultiplier)
 
-					log.Printf("[response tracker] check-in timeout for %s/%s, scheduling retry %d/%d (delay: %s)",
-						event.SpaceName, event.AgentName, event.RetryCount+1, cfg.RetryAttempts, retryDelay)
+					scheduledFor := now.Add(retryDelay)
 
-					// Mark this event as timed out and increment retry count
-					event.ErrorMessage = fmt.Sprintf("timeout after %s", timeoutDuration)
-					event.RetryCount++
+					log.Printf("[response tracker] check-in timeout for %s/%s, scheduling retry %d/%d (delay: %s, scheduled for: %s)",
+						event.SpaceName, event.AgentName, event.RetryCount+1, cfg.RetryAttempts, retryDelay, scheduledFor.Format(time.RFC3339))
+
+					// Mark original event as timed out
+					event.ErrorMessage = fmt.Sprintf("timeout after %s, retry scheduled", timeoutDuration)
+					event.ResponseReceived = false
 
 					if err := rt.repo.UpdateCheckInEvent(event); err != nil {
 						log.Printf("[response tracker] error updating event %s: %v", event.ID, err)
 					}
 
 					// Create a new check-in event for the retry
-					// In a real implementation, this would be scheduled for the future
-					// For now, we'll just log it
-					log.Printf("[response tracker] retry scheduled for %s in %s", event.AgentName, retryDelay)
+					retryEvent := &db.CheckInEvent{
+						ID:               fmt.Sprintf("%s-retry-%d", event.ID, event.RetryCount+1),
+						SpaceName:        event.SpaceName,
+						AgentName:        event.AgentName,
+						ScheduledAt:      scheduledFor,
+						TriggeredAt:      time.Time{}, // Will be set when actually triggered
+						AgentStatus:      event.AgentStatus,
+						MessageSent:      false,
+						ResponseReceived: false,
+						RetryCount:       event.RetryCount + 1,
+					}
+
+					if err := rt.repo.CreateCheckInEvent(retryEvent); err != nil {
+						log.Printf("[response tracker] error creating retry event: %v", err)
+						rt.metrics.MessageDeliveryFailures.Inc()
+					} else {
+						rt.metrics.CheckInRetries.Inc()
+						log.Printf("[response tracker] retry event created: %s (scheduled for %s)",
+							retryEvent.ID, scheduledFor.Format(time.RFC3339))
+					}
 				} else {
 					// Max retries exceeded - mark as failed
 					event.ResponseReceived = false
