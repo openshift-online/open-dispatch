@@ -58,6 +58,24 @@ type CheckInEventResponse struct {
 	RetryCount         int        `json:"retry_count"`
 }
 
+// validateScheduleFrequency ensures cron schedule doesn't trigger more frequently than every 5 minutes.
+// Spec requirement: minimum 5-minute interval to prevent excessive check-ins.
+func validateScheduleFrequency(schedule cron.Schedule, cronStr string) error {
+	// Calculate time between first two scheduled runs
+	now := time.Now()
+	next1 := schedule.Next(now)
+	next2 := schedule.Next(next1)
+
+	interval := next2.Sub(next1)
+	minInterval := 5 * time.Minute
+
+	if interval < minInterval {
+		return fmt.Errorf("schedule %q triggers too frequently (every %v); minimum interval is 5 minutes", cronStr, interval)
+	}
+
+	return nil
+}
+
 // handleAgentCheckInConfig handles GET/POST/PATCH/DELETE /spaces/{space}/agent/{agent}/check-in/config
 func (s *Server) handleAgentCheckInConfig(w http.ResponseWriter, r *http.Request, spaceName, agentName string) {
 	switch r.Method {
@@ -99,18 +117,41 @@ func (s *Server) createAgentCheckInConfig(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Validate cron schedule
-	if req.CronSchedule != "" {
-		parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
-		if _, err := parser.Parse(req.CronSchedule); err != nil {
-			writeJSONError(w, fmt.Sprintf("invalid cron schedule: %v", err), http.StatusBadRequest)
-			return
-		}
+	// Validate required fields
+	if req.CronSchedule == "" {
+		writeJSONError(w, "cron_schedule is required", http.StatusBadRequest)
+		return
 	}
 
-	// Validate timeout/retry values
-	if req.TimeoutSeconds < 0 || req.RetryAttempts < 0 || req.RetryDelaySeconds < 0 {
-		writeJSONError(w, "timeout, retry_attempts, and retry_delay_seconds must be non-negative", http.StatusBadRequest)
+	// Validate agent name (should be non-empty and already validated by route)
+	if agentName == "" {
+		writeJSONError(w, "agent name cannot be empty", http.StatusBadRequest)
+		return
+	}
+
+	// Validate cron schedule syntax
+	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+	schedule, err := parser.Parse(req.CronSchedule)
+	if err != nil {
+		writeJSONError(w, fmt.Sprintf("invalid cron schedule: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	// Validate schedule frequency (minimum 5 minutes per spec)
+	if err := validateScheduleFrequency(schedule, req.CronSchedule); err != nil {
+		writeJSONError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Validate timeout bounds (5-300 seconds per spec)
+	if req.TimeoutSeconds != 0 && (req.TimeoutSeconds < 5 || req.TimeoutSeconds > 300) {
+		writeJSONError(w, "timeout_seconds must be between 5 and 300 seconds", http.StatusBadRequest)
+		return
+	}
+
+	// Validate retry values
+	if req.RetryAttempts < 0 || req.RetryDelaySeconds < 0 {
+		writeJSONError(w, "retry_attempts and retry_delay_seconds must be non-negative", http.StatusBadRequest)
 		return
 	}
 
@@ -187,11 +228,23 @@ func (s *Server) updateAgentCheckInConfig(w http.ResponseWriter, r *http.Request
 	// Validate cron schedule if provided
 	if req.CronSchedule != "" {
 		parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
-		if _, err := parser.Parse(req.CronSchedule); err != nil {
+		schedule, err := parser.Parse(req.CronSchedule)
+		if err != nil {
 			writeJSONError(w, fmt.Sprintf("invalid cron schedule: %v", err), http.StatusBadRequest)
 			return
 		}
+		// Validate schedule frequency (minimum 5 minutes)
+		if err := validateScheduleFrequency(schedule, req.CronSchedule); err != nil {
+			writeJSONError(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		cfg.CronSchedule = req.CronSchedule
+	}
+
+	// Validate timeout bounds if provided (5-300 seconds)
+	if req.TimeoutSeconds > 0 && (req.TimeoutSeconds < 5 || req.TimeoutSeconds > 300) {
+		writeJSONError(w, "timeout_seconds must be between 5 and 300 seconds", http.StatusBadRequest)
+		return
 	}
 
 	// Update fields (only non-zero values)
