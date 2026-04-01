@@ -34,6 +34,10 @@ type Scheduler struct {
 
 	// Message sender function injected for testing
 	sendMessage func(spaceName, agentName, message string) error
+
+	// Metrics for observability
+	metrics       *Metrics
+	leaderSince   time.Time
 }
 
 // New creates a new check-in scheduler instance.
@@ -45,6 +49,7 @@ func New(repo *db.Repository) *Scheduler {
 		instanceID: uuid.New().String(),
 		ctx:        ctx,
 		cancel:     cancel,
+		metrics:    NewMetrics(),
 	}
 }
 
@@ -112,6 +117,8 @@ func (s *Scheduler) tryBecomeLeader() {
 
 	if acquired && !wasLeader {
 		log.Printf("[check-in scheduler] instance %s became leader", s.instanceID)
+		s.leaderSince = time.Now()
+		s.metrics.LeaderElections.Inc()
 		go s.leaderLoop()
 	}
 }
@@ -137,12 +144,16 @@ func (s *Scheduler) leaderLoop() {
 		case <-renewTicker.C:
 			if err := s.repo.RenewSchedulerLock(s.instanceID, lockDuration); err != nil {
 				log.Printf("[check-in scheduler] lost leader lock: %v", err)
+				s.metrics.LockFailures.Inc()
+				s.metrics.LeadershipDuration.Set(0)
 				s.mu.Lock()
 				s.isLeader = false
 				s.mu.Unlock()
 				s.cron.Stop()
 				return
 			}
+			s.metrics.LockRenewals.Inc()
+			s.metrics.LeadershipDuration.Set(time.Since(s.leaderSince).Seconds())
 		}
 	}
 }
@@ -169,6 +180,7 @@ func (s *Scheduler) reloadSchedules() error {
 	}
 
 	log.Printf("[check-in scheduler] loaded %d check-in schedules", len(configs))
+	s.metrics.ActiveConfigs.Set(float64(len(configs)))
 	return nil
 }
 
@@ -207,6 +219,7 @@ func (s *Scheduler) triggerCheckIn(cfg *db.AgentCheckInConfig) error {
 	if cfg.IdleOnly && agent.Status != "idle" {
 		log.Printf("[check-in scheduler] skipping %s/%s (status=%s, idle_only=true)",
 			cfg.SpaceName, cfg.AgentName, agent.Status)
+		s.metrics.IdleOnlySkipped.Inc()
 		return nil
 	}
 
@@ -220,6 +233,7 @@ func (s *Scheduler) triggerCheckIn(cfg *db.AgentCheckInConfig) error {
 			if evt.AgentName == cfg.AgentName && evt.SpaceName == cfg.SpaceName {
 				log.Printf("[check-in scheduler] skipping %s/%s (pending check-in exists)",
 					cfg.SpaceName, cfg.AgentName)
+				s.metrics.DuplicateSkipped.Inc()
 				return nil
 			}
 		}
@@ -251,12 +265,14 @@ func (s *Scheduler) triggerCheckIn(cfg *db.AgentCheckInConfig) error {
 				cfg.SpaceName, cfg.AgentName, err)
 			event.ErrorMessage = err.Error()
 			event.MessageSent = false
+			s.metrics.MessageDeliveryFailures.Inc()
 		} else {
 			event.MessageSent = true
 			event.MessageID = uuid.New().String() // TODO: get actual message ID from send_message
 		}
 	} else {
 		event.ErrorMessage = "message sender not configured"
+		s.metrics.MessageDeliveryFailures.Inc()
 	}
 
 	// Update event with message status
@@ -266,6 +282,7 @@ func (s *Scheduler) triggerCheckIn(cfg *db.AgentCheckInConfig) error {
 
 	log.Printf("[check-in scheduler] triggered check-in for %s/%s (event %s)",
 		cfg.SpaceName, cfg.AgentName, event.ID)
+	s.metrics.CheckInsTriggered.Inc()
 
 	return nil
 }
@@ -283,5 +300,11 @@ func (s *Scheduler) ReloadSchedules() error {
 	if !s.IsLeader() {
 		return nil // Only leader reloads schedules
 	}
+	s.metrics.ConfigChanges.Inc()
 	return s.reloadSchedules()
+}
+
+// GetMetrics returns the metrics instance for sharing with response tracker.
+func (s *Scheduler) GetMetrics() *Metrics {
+	return s.metrics
 }

@@ -16,6 +16,7 @@ import (
 	"github.com/ambient/platform/components/boss/internal/coordinator/checkin"
 	sqliteadapter "github.com/ambient/platform/components/boss/internal/adapters/storage/sqlite"
 	"github.com/ambient/platform/components/boss/internal/domain/ports"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 const (
@@ -319,6 +320,8 @@ func (s *Server) Start() error {
 		s.handlePersonaDetail(w, r, rest)
 	})
 	mux.HandleFunc("/settings", s.handleSettings)
+	// Prometheus metrics endpoint
+	mux.Handle("/metrics", promhttp.Handler())
 	mcpHandler := s.buildMCPHandler()
 	mux.Handle("/mcp", mcpHandler)
 	mux.Handle("/mcp/", mcpHandler)
@@ -372,8 +375,8 @@ func (s *Server) Start() error {
 			return fmt.Errorf("start check-in scheduler: %w", err)
 		}
 
-		// Initialize response tracker and start monitoring loop
-		s.checkInResponseTracker = checkin.NewResponseTracker(s.repo)
+		// Initialize response tracker with shared metrics and start monitoring loop
+		s.checkInResponseTracker = checkin.NewResponseTracker(s.repo, s.checkInScheduler.GetMetrics())
 		go s.checkInResponseLoop(30 * time.Second)
 	}
 

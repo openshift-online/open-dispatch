@@ -10,12 +10,16 @@ import (
 
 // ResponseTracker monitors agent status updates and correlates them with pending check-ins.
 type ResponseTracker struct {
-	repo *db.Repository
+	repo    *db.Repository
+	metrics *Metrics
 }
 
 // NewResponseTracker creates a new response tracker instance.
-func NewResponseTracker(repo *db.Repository) *ResponseTracker {
-	return &ResponseTracker{repo: repo}
+func NewResponseTracker(repo *db.Repository, metrics *Metrics) *ResponseTracker {
+	return &ResponseTracker{
+		repo:    repo,
+		metrics: metrics,
+	}
 }
 
 // CheckPendingEvents checks for pending check-in events and validates responses.
@@ -66,6 +70,10 @@ func (rt *ResponseTracker) CheckPendingEvents() error {
 			log.Printf("[response tracker] check-in response received for %s/%s (latency: %dms)",
 				event.SpaceName, event.AgentName, latencyMs)
 
+			// Track metrics
+			rt.metrics.CheckInsSucceeded.Inc()
+			rt.metrics.ResponseLatency.Observe(float64(latencyMs) / 1000.0) // convert to seconds
+
 			// Update the config's last_check_in_at timestamp
 			if err := rt.updateLastCheckIn(event.SpaceName, event.AgentName); err != nil {
 				log.Printf("[response tracker] error updating last check-in time: %v", err)
@@ -112,6 +120,10 @@ func (rt *ResponseTracker) CheckPendingEvents() error {
 					event.ResponseReceived = false
 					event.ErrorMessage = fmt.Sprintf("max retries (%d) exceeded, no response after %s",
 						cfg.RetryAttempts, timeoutDuration)
+
+					// Track metrics
+					rt.metrics.MaxRetriesExceeded.Inc()
+					rt.metrics.CheckInsFailed.Inc()
 
 					if err := rt.repo.UpdateCheckInEvent(event); err != nil {
 						log.Printf("[response tracker] error updating event %s: %v", event.ID, err)
