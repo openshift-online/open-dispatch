@@ -182,6 +182,21 @@ func (s *Server) handleSpaceRoute(w http.ResponseWriter, r *http.Request) {
 				s.handleAgentDuplicate(w, r, spaceName, agentName)
 			case "documents":
 				s.handleAgentDocumentsList(w, r, spaceName, agentName)
+			case "check-in":
+				if len(parts) >= 5 {
+					// /spaces/{space}/agent/{agent}/check-in/{config|history}
+					subAction := strings.TrimRight(parts[4], "/")
+					switch subAction {
+					case "config":
+						s.handleAgentCheckInConfig(w, r, spaceName, agentName)
+					case "history":
+						s.handleAgentCheckInHistory(w, r, spaceName, agentName)
+					default:
+						http.NotFound(w, r)
+					}
+				} else {
+					http.NotFound(w, r)
+				}
 			default:
 				// Handle document path: /spaces/{space}/agent/{agent}/{slug}
 				s.handleAgentDocument(w, r, spaceName, agentName, action)
@@ -220,6 +235,18 @@ func (s *Server) handleSpaceRoute(w http.ResponseWriter, r *http.Request) {
 		s.handleSpaceHierarchy(w, r, spaceName)
 	case "history":
 		s.handleSpaceHistory(w, r, spaceName)
+	case "check-ins":
+		if len(parts) >= 3 {
+			subAction := strings.TrimRight(parts[2], "/")
+			switch subAction {
+			case "configs":
+				s.handleCheckInConfigsList(w, r, spaceName)
+			default:
+				http.NotFound(w, r)
+			}
+		} else {
+			http.NotFound(w, r)
+		}
 	case "ignition":
 		agentName := ""
 		if len(parts) == 3 {

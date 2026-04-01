@@ -96,6 +96,9 @@ func migrate(db *gorm.DB) error {
 		&InterruptRecord{},
 		&PersonaRow{},
 		&PersonaVersionRow{},
+		&AgentCheckInConfig{},
+		&CheckInEvent{},
+		&CheckInSchedulerLock{},
 	); err != nil {
 		return err
 	}

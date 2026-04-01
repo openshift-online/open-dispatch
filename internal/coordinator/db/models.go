@@ -258,3 +258,54 @@ type InterruptRecord struct {
 }
 
 func (InterruptRecord) TableName() string { return "interrupts" }
+
+// AgentCheckInConfig stores per-agent check-in configuration.
+type AgentCheckInConfig struct {
+	ID                   uint      `gorm:"primarykey;autoIncrement"`
+	SpaceName            string    `gorm:"not null;uniqueIndex:idx_checkin_space_agent,priority:1;index"`
+	AgentName            string    `gorm:"not null;uniqueIndex:idx_checkin_space_agent,priority:2"`
+	CheckInEnabled       bool      `gorm:"not null;default:false;index:idx_checkin_enabled,where:check_in_enabled = true"`
+	CronSchedule         string    `gorm:"not null"`
+	IdleOnly             bool      `gorm:"not null;default:true"`
+	TimeoutSeconds       int       `gorm:"not null;default:300"`
+	RetryAttempts        int       `gorm:"not null;default:3"`
+	RetryDelaySeconds    int       `gorm:"not null;default:60"`
+	NotificationChannels string    `gorm:"type:text"` // JSON array
+	LastCheckInAt        sql.NullTime
+	EnabledBy            string
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+}
+
+func (AgentCheckInConfig) TableName() string { return "agent_check_in_configs" }
+
+// CheckInEvent records a check-in event and its outcome.
+type CheckInEvent struct {
+	ID                  string       `gorm:"primarykey;not null"` // UUID
+	SpaceName           string       `gorm:"not null;index:idx_event_space_agent,priority:1;index"`
+	AgentName           string       `gorm:"not null;index:idx_event_space_agent,priority:2;index:idx_event_agent_time,priority:1"`
+	ScheduledAt         time.Time    `gorm:"not null"`
+	TriggeredAt         time.Time    `gorm:"not null;index:idx_event_agent_time,priority:2"`
+	AgentStatus         string       `gorm:"not null"`
+	MessageSent         bool         `gorm:"not null;default:false"`
+	MessageID           string       `gorm:"index"`
+	ResponseReceived    bool         `gorm:"not null;default:false;index:idx_pending_checkins,where:response_received = false AND message_sent = true"`
+	ResponseAt          sql.NullTime
+	ResponseLatencyMs   sql.NullInt64
+	StatusAfterCheckIn  string
+	ErrorMessage        string       `gorm:"type:text"`
+	RetryCount          int          `gorm:"not null;default:0"`
+}
+
+func (CheckInEvent) TableName() string { return "check_in_events" }
+
+// CheckInSchedulerLock implements PostgreSQL-based leader election for the scheduler.
+type CheckInSchedulerLock struct {
+	ID         uint      `gorm:"primarykey;autoIncrement"`
+	LockedBy   string    `gorm:"not null"` // instance identifier
+	LockedAt   time.Time `gorm:"not null;index"`
+	ExpiresAt  time.Time `gorm:"not null;index"`
+	RenewedAt  time.Time `gorm:"not null"`
+}
+
+func (CheckInSchedulerLock) TableName() string { return "check_in_scheduler_locks" }
