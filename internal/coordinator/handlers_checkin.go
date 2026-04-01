@@ -154,6 +154,11 @@ func (s *Server) createAgentCheckInConfig(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// Reload scheduler to pick up new config
+	if s.checkInScheduler != nil {
+		s.checkInScheduler.ReloadSchedules()
+	}
+
 	resp := configToResponse(cfg)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
@@ -212,6 +217,11 @@ func (s *Server) updateAgentCheckInConfig(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// Reload scheduler to pick up updated config
+	if s.checkInScheduler != nil {
+		s.checkInScheduler.ReloadSchedules()
+	}
+
 	resp := configToResponse(cfg)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
@@ -222,6 +232,11 @@ func (s *Server) deleteAgentCheckInConfig(w http.ResponseWriter, r *http.Request
 	if err := s.repo.DeleteCheckInConfig(spaceName, agentName); err != nil {
 		writeJSONError(w, fmt.Sprintf("database error: %v", err), http.StatusInternalServerError)
 		return
+	}
+
+	// Reload scheduler to remove deleted config
+	if s.checkInScheduler != nil {
+		s.checkInScheduler.ReloadSchedules()
 	}
 
 	w.WriteHeader(http.StatusNoContent)
