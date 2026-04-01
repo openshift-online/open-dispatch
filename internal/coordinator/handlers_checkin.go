@@ -76,6 +76,32 @@ func validateScheduleFrequency(schedule cron.Schedule, cronStr string) error {
 	return nil
 }
 
+// validateAgentName ensures agent name follows safe naming conventions.
+// Prevents injection attacks and ensures URL/database safety.
+func validateAgentName(name string) error {
+	if name == "" {
+		return fmt.Errorf("agent name cannot be empty")
+	}
+
+	if len(name) > 100 {
+		return fmt.Errorf("agent name too long (max 100 characters)")
+	}
+
+	// Allow alphanumeric, hyphens, underscores, dots (standard identifier format)
+	for i, r := range name {
+		valid := (r >= 'a' && r <= 'z') ||
+			(r >= 'A' && r <= 'Z') ||
+			(r >= '0' && r <= '9') ||
+			r == '-' || r == '_' || r == '.'
+
+		if !valid {
+			return fmt.Errorf("agent name contains invalid character %q at position %d; only alphanumeric, hyphens, underscores, and dots allowed", r, i)
+		}
+	}
+
+	return nil
+}
+
 // handleAgentCheckInConfig handles GET/POST/PATCH/DELETE /spaces/{space}/agent/{agent}/check-in/config
 func (s *Server) handleAgentCheckInConfig(w http.ResponseWriter, r *http.Request, spaceName, agentName string) {
 	switch r.Method {
@@ -117,15 +143,15 @@ func (s *Server) createAgentCheckInConfig(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Validate required fields
-	if req.CronSchedule == "" {
-		writeJSONError(w, "cron_schedule is required", http.StatusBadRequest)
+	// Validate agent name format
+	if err := validateAgentName(agentName); err != nil {
+		writeJSONError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	// Validate agent name (should be non-empty and already validated by route)
-	if agentName == "" {
-		writeJSONError(w, "agent name cannot be empty", http.StatusBadRequest)
+	// Validate required fields
+	if req.CronSchedule == "" {
+		writeJSONError(w, "cron_schedule is required", http.StatusBadRequest)
 		return
 	}
 
@@ -208,6 +234,12 @@ func (s *Server) createAgentCheckInConfig(w http.ResponseWriter, r *http.Request
 
 // updateAgentCheckInConfig updates an existing check-in configuration.
 func (s *Server) updateAgentCheckInConfig(w http.ResponseWriter, r *http.Request, spaceName, agentName string) {
+	// Validate agent name format
+	if err := validateAgentName(agentName); err != nil {
+		writeJSONError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
 	// Fetch existing config
 	cfg, err := s.repo.GetCheckInConfig(spaceName, agentName)
 	if err != nil {
