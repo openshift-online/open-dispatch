@@ -1088,6 +1088,35 @@ func (s *Server) addToolSpawnAgent(srv *mcp.Server) {
 		workDir := strArg(args, "work_dir")
 		spawnerName := strArg(args, "parent")
 
+		// Space enforcement (SEC-007): When a parent/spawner is specified, enforce
+		// that the new agent is created in the same space as the parent. This prevents
+		// agents from spawning other agents in arbitrary spaces.
+		if spawnerName != "" {
+			s.mu.RLock()
+			spawnerSpace := ""
+			spawnerFound := false
+			// Search all spaces to find which space contains the spawner agent.
+			for spName, ks := range s.spaces {
+				spawnerCanonical := resolveAgentName(ks, spawnerName)
+				if _, exists := ks.Agents[spawnerCanonical]; exists {
+					spawnerSpace = spName
+					spawnerFound = true
+					break
+				}
+			}
+			s.mu.RUnlock()
+
+			if !spawnerFound {
+				return toolError(fmt.Sprintf("parent agent %q not found in any space", spawnerName)), nil
+			}
+			if !strings.EqualFold(spawnerSpace, spaceName) {
+				return toolError(fmt.Sprintf(
+					"space enforcement: agent %q in space %q cannot spawn agents in space %q",
+					spawnerName, spawnerSpace, spaceName,
+				)), nil
+			}
+		}
+
 		if workDir != "" {
 			// Ensure an AgentConfig entry exists so spawnAgentService picks up the workDir.
 			s.mu.Lock()
