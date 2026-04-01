@@ -2,6 +2,7 @@ package coordinator
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 )
@@ -29,7 +30,7 @@ func (b *mockAmbientBackend) CreateSession(_ context.Context, opts SessionCreate
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.createCount++
-	sessionID := "mock-ambient-session-" + string(rune('0'+b.createCount))
+	sessionID := fmt.Sprintf("mock-ambient-session-%d", b.createCount)
 	b.sessions[sessionID] = true
 	return sessionID, nil
 }
@@ -121,10 +122,13 @@ func TestAutoResumeAmbientSession(t *testing.T) {
 		t.Fatal("expected initial session to be stopped")
 	}
 
-	// Directly test the restart service instead of full check-in to avoid timeout
-	newSessionID, canonical, err := srv.restartAgentService(space, agentName, spawnRequest{})
+	// Test auto-resume through the production code path
+	newSessionID, resumed, err := srv.maybeAutoResumeAgent(space, agentName, initialSessionID, mockBackend)
 	if err != nil {
-		t.Fatalf("restartAgentService failed: %v", err)
+		t.Fatalf("maybeAutoResumeAgent failed: %v", err)
+	}
+	if !resumed {
+		t.Fatal("expected auto-resume to occur")
 	}
 
 	// Verify a new session was created
@@ -137,9 +141,6 @@ func TestAutoResumeAmbientSession(t *testing.T) {
 	}
 	if newSessionID == "" {
 		t.Error("expected non-empty session ID after auto-resume")
-	}
-	if canonical != agentName {
-		t.Errorf("expected canonical name %q, got %q", agentName, canonical)
 	}
 
 	// Verify the new session exists

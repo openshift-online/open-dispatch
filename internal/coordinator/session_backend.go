@@ -17,6 +17,8 @@ type SessionBackend interface {
 
 	// SupportsAutoResume reports whether this backend supports automatic
 	// session resumption when a stopped session receives a message.
+	// BREAKING CHANGE (2026-04-01): This method was added to the SessionBackend interface.
+	// External backend implementations must add this method (return false for backward compatibility).
 	SupportsAutoResume() bool
 
 	// --- Lifecycle ---

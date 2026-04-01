@@ -747,6 +747,9 @@ func (s *Server) SingleAgentCheckIn(spaceName, agentName, checkModel, workModel 
 	}
 	if resumed {
 		sessionID = newSessionID
+		// Note: After auto-resume, the agent receives an ignition message automatically
+		// via restartAgentService. The check-in message will be delivered separately via
+		// runAgentCheckIn below, after verifying the session is idle.
 	} else if !backend.SessionExists(sessionID) {
 		// Session doesn't exist and wasn't auto-resumed
 		result.Skipped = append(result.Skipped, canonical+" (session not found: "+sessionID+")")
