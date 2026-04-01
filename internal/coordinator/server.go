@@ -104,6 +104,8 @@ type Server struct {
 	agentTokenCache sync.Map
 	// checkInScheduler manages automated agent check-ins
 	checkInScheduler *checkin.Scheduler
+	// checkInResponseTracker monitors and validates check-in responses
+	checkInResponseTracker *checkin.ResponseTracker
 }
 
 func NewServer(port, dataDir string) *Server {
@@ -369,6 +371,10 @@ func (s *Server) Start() error {
 		if err := s.checkInScheduler.Start(); err != nil {
 			return fmt.Errorf("start check-in scheduler: %w", err)
 		}
+
+		// Initialize response tracker and start monitoring loop
+		s.checkInResponseTracker = checkin.NewResponseTracker(s.repo)
+		go s.checkInResponseLoop(30 * time.Second)
 	}
 
 	return nil
@@ -491,4 +497,22 @@ func (s *Server) sendMessageToAgent(spaceName, targetName, senderName, messageTe
 	s.journal.Append(spaceName, EventMessageSent, canonical, &msgReq)
 
 	return nil
+}
+
+// checkInResponseLoop periodically checks for pending check-ins and validates responses.
+func (s *Server) checkInResponseLoop(interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-s.stopLiveness:
+			return
+		case <-ticker.C:
+			if s.checkInResponseTracker != nil {
+				if err := s.checkInResponseTracker.CheckPendingEvents(); err != nil {
+					s.logEvent(fmt.Sprintf("warning: check pending check-ins: %v", err))
+				}
+			}
+		}
+	}
 }
