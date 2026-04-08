@@ -1548,24 +1548,14 @@ func (s *Server) handleCreateAgents(w http.ResponseWriter, r *http.Request, spac
 	// from being spawned in arbitrary spaces via the HTTP API.
 	if req.Parent != "" {
 		s.mu.RLock()
-		parentSpace := ""
-		parentFound := false
-		// Search all spaces to find which space contains the parent agent.
-		for spName, ks := range s.spaces {
-			parentCanonical := resolveAgentName(ks, req.Parent)
-			if _, exists := ks.Agents[parentCanonical]; exists {
-				parentSpace = spName
-				parentFound = true
-				break
-			}
-		}
+		parentSpace, parentFound := s.findAgentSpace(req.Parent)
 		s.mu.RUnlock()
 
 		if !parentFound {
 			writeJSONError(w, fmt.Sprintf("parent agent %q not found in any space", req.Parent), http.StatusBadRequest)
 			return
 		}
-		if !strings.EqualFold(parentSpace, spaceName) {
+		if parentSpace != spaceName {
 			writeJSONError(w, fmt.Sprintf(
 				"space enforcement: agent %q in space %q cannot spawn agents in space %q",
 				req.Parent, parentSpace, spaceName,

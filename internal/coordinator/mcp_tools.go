@@ -1093,23 +1093,13 @@ func (s *Server) addToolSpawnAgent(srv *mcp.Server) {
 		// agents from spawning other agents in arbitrary spaces.
 		if spawnerName != "" {
 			s.mu.RLock()
-			spawnerSpace := ""
-			spawnerFound := false
-			// Search all spaces to find which space contains the spawner agent.
-			for spName, ks := range s.spaces {
-				spawnerCanonical := resolveAgentName(ks, spawnerName)
-				if _, exists := ks.Agents[spawnerCanonical]; exists {
-					spawnerSpace = spName
-					spawnerFound = true
-					break
-				}
-			}
+			spawnerSpace, spawnerFound := s.findAgentSpace(spawnerName)
 			s.mu.RUnlock()
 
 			if !spawnerFound {
 				return toolError(fmt.Sprintf("parent agent %q not found in any space", spawnerName)), nil
 			}
-			if !strings.EqualFold(spawnerSpace, spaceName) {
+			if spawnerSpace != spaceName {
 				return toolError(fmt.Sprintf(
 					"space enforcement: agent %q in space %q cannot spawn agents in space %q",
 					spawnerName, spawnerSpace, spaceName,
