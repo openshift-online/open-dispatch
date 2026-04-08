@@ -549,3 +549,152 @@ func (r *Repository) PersonaExists(id string) (bool, error) {
 	err := r.db.Model(&PersonaRow{}).Where("id = ?", id).Count(&count).Error
 	return count > 0, err
 }
+
+// ---- Check-In operations ----
+
+// UpsertCheckInConfig creates or updates a check-in configuration for an agent.
+func (r *Repository) UpsertCheckInConfig(cfg *AgentCheckInConfig) error {
+	return r.db.Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "space_name"}, {Name: "agent_name"}},
+		DoUpdates: clause.AssignmentColumns([]string{
+			"check_in_enabled", "cron_schedule", "idle_only",
+			"timeout_seconds", "retry_attempts", "retry_delay_seconds",
+			"notification_channels", "last_check_in_at", "enabled_by", "updated_at",
+		}),
+	}).Create(cfg).Error
+}
+
+// GetCheckInConfig returns the check-in config for an agent, or (nil, nil) if not found.
+func (r *Repository) GetCheckInConfig(spaceName, agentName string) (*AgentCheckInConfig, error) {
+	var cfg AgentCheckInConfig
+	err := r.db.Where("space_name = ? AND agent_name = ?", spaceName, agentName).First(&cfg).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return &cfg, err
+}
+
+// ListCheckInConfigs returns all check-in configs, optionally filtered by enabled status.
+func (r *Repository) ListCheckInConfigs(enabledOnly bool) ([]*AgentCheckInConfig, error) {
+	var configs []*AgentCheckInConfig
+	query := r.db
+	if enabledOnly {
+		query = query.Where("check_in_enabled = ?", true)
+	}
+	return configs, query.Order("space_name ASC, agent_name ASC").Find(&configs).Error
+}
+
+// DeleteCheckInConfig removes a check-in configuration.
+func (r *Repository) DeleteCheckInConfig(spaceName, agentName string) error {
+	return r.db.Where("space_name = ? AND agent_name = ?", spaceName, agentName).Delete(&AgentCheckInConfig{}).Error
+}
+
+// CreateCheckInEvent records a new check-in event.
+func (r *Repository) CreateCheckInEvent(event *CheckInEvent) error {
+	return r.db.Create(event).Error
+}
+
+// GetCheckInEvent returns a check-in event by ID, or (nil, nil) if not found.
+func (r *Repository) GetCheckInEvent(eventID string) (*CheckInEvent, error) {
+	var event CheckInEvent
+	err := r.db.Where("id = ?", eventID).First(&event).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return &event, err
+}
+
+// ListCheckInEvents returns check-in events for an agent, newest first.
+func (r *Repository) ListCheckInEvents(spaceName, agentName string, limit int) ([]*CheckInEvent, error) {
+	var events []*CheckInEvent
+	query := r.db.Where("space_name = ? AND agent_name = ?", spaceName, agentName).
+		Order("triggered_at DESC")
+	if limit > 0 {
+		query = query.Limit(limit)
+	}
+	return events, query.Find(&events).Error
+}
+
+// UpdateCheckInEvent updates fields on an existing check-in event.
+func (r *Repository) UpdateCheckInEvent(event *CheckInEvent) error {
+	return r.db.Save(event).Error
+}
+
+// GetPendingCheckInEvents returns check-in events awaiting response (message sent but not received).
+func (r *Repository) GetPendingCheckInEvents(lookbackMinutes int) ([]*CheckInEvent, error) {
+	var events []*CheckInEvent
+	cutoff := time.Now().Add(-time.Duration(lookbackMinutes) * time.Minute)
+	return events, r.db.Where("message_sent = ? AND response_received = ? AND triggered_at > ?",
+		true, false, cutoff).Find(&events).Error
+}
+
+// GetScheduledCheckInEvents returns check-in events that are scheduled to trigger now or in the past,
+// but have not yet sent their message. Used for retry queue processing.
+func (r *Repository) GetScheduledCheckInEvents() ([]*CheckInEvent, error) {
+	var events []*CheckInEvent
+	now := time.Now()
+	return events, r.db.Where("scheduled_at <= ? AND message_sent = ? AND response_received = ?",
+		now, false, false).Order("scheduled_at ASC").Find(&events).Error
+}
+
+// AcquireSchedulerLock attempts to acquire the scheduler lock. Returns true if acquired.
+// Uses INSERT...ON CONFLICT to atomically acquire expired locks. The single-row table
+// pattern (id=1) ensures only one lock can exist; the WHERE clause on DO UPDATE prevents
+// stealing an active lock from another instance.
+func (r *Repository) AcquireSchedulerLock(instanceID string, duration time.Duration) (bool, error) {
+	now := time.Now()
+	expiresAt := now.Add(duration)
+
+	// Atomic lock acquisition: insert or update if lock is expired OR same instance.
+	// PostgreSQL: uses ON CONFLICT DO UPDATE with WHERE clause.
+	// SQLite: ON CONFLICT REPLACE doesn't support WHERE, so we delete expired locks first.
+
+	// For SQLite: clean up expired lock, then insert
+	r.db.Exec(`DELETE FROM check_in_scheduler_locks WHERE expires_at < ?`, now)
+
+	// Try to insert new lock. WHERE clause allows acquisition when:
+	// 1. Lock is expired (expires_at < NOW), OR
+	// 2. Same instance is re-acquiring (locked_by matches)
+	result := r.db.Exec(`
+		INSERT INTO check_in_scheduler_locks (id, locked_by, locked_at, expires_at, renewed_at)
+		VALUES (1, ?, ?, ?, ?)
+		ON CONFLICT (id) DO UPDATE
+		SET locked_by = EXCLUDED.locked_by,
+		    locked_at = EXCLUDED.locked_at,
+		    expires_at = EXCLUDED.expires_at,
+		    renewed_at = EXCLUDED.renewed_at
+		WHERE check_in_scheduler_locks.expires_at < ?
+		   OR check_in_scheduler_locks.locked_by = EXCLUDED.locked_by
+	`, instanceID, now, expiresAt, now, now)
+
+	if result.Error != nil {
+		return false, result.Error
+	}
+
+	return result.RowsAffected > 0, nil
+}
+
+// RenewSchedulerLock extends the expiration time for the scheduler lock held by this instance.
+func (r *Repository) RenewSchedulerLock(instanceID string, duration time.Duration) error {
+	now := time.Now()
+	expiresAt := now.Add(duration)
+
+	result := r.db.Exec(`
+		UPDATE check_in_scheduler_locks
+		SET expires_at = ?, renewed_at = ?
+		WHERE locked_by = ? AND expires_at > ?
+	`, expiresAt, now, instanceID, now)
+
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("lock not held by instance %s", instanceID)
+	}
+	return nil
+}
+
+// ReleaseSchedulerLock releases the scheduler lock held by this instance.
+func (r *Repository) ReleaseSchedulerLock(instanceID string) error {
+	return r.db.Where("locked_by = ?", instanceID).Delete(&CheckInSchedulerLock{}).Error
+}

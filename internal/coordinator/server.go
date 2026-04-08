@@ -13,8 +13,10 @@ import (
 	"time"
 
 	bossdb "github.com/ambient/platform/components/boss/internal/coordinator/db"
+	"github.com/ambient/platform/components/boss/internal/coordinator/checkin"
 	sqliteadapter "github.com/ambient/platform/components/boss/internal/adapters/storage/sqlite"
 	"github.com/ambient/platform/components/boss/internal/domain/ports"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 const (
@@ -101,6 +103,10 @@ type Server struct {
 	// round-trip on every authenticated agent POST. Keyed by "space/agent"
 	// (lowercase). Invalidated when a new token hash is written (spawn/restart).
 	agentTokenCache sync.Map
+	// checkInScheduler manages automated agent check-ins
+	checkInScheduler *checkin.Scheduler
+	// checkInResponseTracker monitors and validates check-in responses
+	checkInResponseTracker *checkin.ResponseTracker
 }
 
 func NewServer(port, dataDir string) *Server {
@@ -314,6 +320,8 @@ func (s *Server) Start() error {
 		s.handlePersonaDetail(w, r, rest)
 	})
 	mux.HandleFunc("/settings", s.handleSettings)
+	// Prometheus metrics endpoint
+	mux.Handle("/metrics", promhttp.Handler())
 	mcpHandler := s.buildMCPHandler()
 	mux.Handle("/mcp", mcpHandler)
 	mux.Handle("/mcp/", mcpHandler)
@@ -354,6 +362,22 @@ func (s *Server) Start() error {
 	// Compaction rewrites .events.jsonl files; skip it when SQLite is active.
 	if s.repo == nil {
 		s.startCompactionLoop(30 * time.Minute)
+	}
+
+	// Initialize and start the check-in scheduler
+	if s.repo != nil {
+		s.checkInScheduler = checkin.New(s.repo)
+		// Wire message sender to use the existing message infrastructure
+		s.checkInScheduler.SetMessageSender(func(spaceName, agentName, message string) error {
+			return s.sendMessageToAgent(spaceName, agentName, "check-in-scheduler", message, "info")
+		})
+		if err := s.checkInScheduler.Start(); err != nil {
+			return fmt.Errorf("start check-in scheduler: %w", err)
+		}
+
+		// Initialize response tracker with shared metrics and start monitoring loop
+		s.checkInResponseTracker = checkin.NewResponseTracker(s.repo, s.checkInScheduler.GetMetrics())
+		go s.checkInResponseLoop(30 * time.Second)
 	}
 
 	return nil
@@ -398,6 +422,14 @@ func (s *Server) Stop() error {
 		return fmt.Errorf("not running")
 	}
 
+	// Stop check-in scheduler first
+	if s.checkInScheduler != nil {
+		if err := s.checkInScheduler.Stop(); err != nil {
+			s.emit(DomainEvent{Level: LevelWarn, EventType: EventServerError,
+				Msg: fmt.Sprintf("error stopping check-in scheduler: %v", err)})
+		}
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	close(s.stopLiveness)
@@ -405,4 +437,85 @@ func (s *Server) Stop() error {
 	s.running = false
 	s.emit(DomainEvent{Level: LevelInfo, EventType: EventServerStopped, Msg: "coordinator stopped"})
 	return err
+}
+
+// sendMessageToAgent delivers a message to an agent's inbox.
+// This is used internally by the check-in scheduler and other system components.
+func (s *Server) sendMessageToAgent(spaceName, targetName, senderName, messageText, priority string) error {
+	if strings.TrimSpace(messageText) == "" {
+		return fmt.Errorf("message content is required")
+	}
+
+	msgReq := AgentMessage{
+		ID:        fmt.Sprintf("%d", time.Now().UnixNano()),
+		Message:   strings.TrimSpace(messageText),
+		Sender:    senderName,
+		Timestamp: time.Now().UTC(),
+		Priority:  MessagePriority(priority),
+	}
+
+	ks, ok := s.getSpace(spaceName)
+	if !ok {
+		return fmt.Errorf("space %q not found", spaceName)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	canonical := resolveAgentName(ks, targetName)
+	ag := ks.agentStatus(canonical)
+	if ag == nil {
+		ag = &AgentUpdate{
+			Status:    StatusIdle,
+			Summary:   fmt.Sprintf("%s: pending message delivery", canonical),
+			Messages:  []AgentMessage{},
+			UpdatedAt: time.Now().UTC(),
+		}
+		ks.setAgentStatus(canonical, ag)
+	}
+	if ag.Messages == nil {
+		ag.Messages = []AgentMessage{}
+	}
+	ag.Messages = append(ag.Messages, msgReq)
+
+	notif := AgentNotification{
+		ID:        fmt.Sprintf("%s-%d", canonical, time.Now().UnixNano()),
+		Type:      NotifTypeMessage,
+		Title:     fmt.Sprintf("New message from %s", senderName),
+		Body:      truncateLine(msgReq.Message, 120),
+		From:      senderName,
+		Timestamp: time.Now().UTC(),
+	}
+	ag.Notifications = append(ag.Notifications, notif)
+
+	ks.UpdatedAt = time.Now().UTC()
+	if err := s.saveSpace(ks); err != nil {
+		return fmt.Errorf("save space: %w", err)
+	}
+
+	// Emit events and broadcast SSE
+	s.emit(DomainEvent{Level: LevelInfo, EventType: EventMsgDelivered, Space: spaceName, Agent: canonical,
+		Msg:    fmt.Sprintf("check-in message delivered to %s", canonical),
+		Fields: map[string]string{"sender": senderName, "priority": priority}})
+	s.journal.Append(spaceName, EventMessageSent, canonical, &msgReq)
+
+	return nil
+}
+
+// checkInResponseLoop periodically checks for pending check-ins and validates responses.
+func (s *Server) checkInResponseLoop(interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-s.stopLiveness:
+			return
+		case <-ticker.C:
+			if s.checkInResponseTracker != nil {
+				if err := s.checkInResponseTracker.CheckPendingEvents(); err != nil {
+					s.logEvent(fmt.Sprintf("warning: check pending check-ins: %v", err))
+				}
+			}
+		}
+	}
 }
