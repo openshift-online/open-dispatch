@@ -4850,3 +4850,132 @@ func TestOperatorExcludedFromHierarchy(t *testing.T) {
 		t.Errorf("operator should not appear in hierarchy nodes")
 	}
 }
+// TestSpawnAgentSpaceEnforcement verifies SEC-007: agents can only spawn other
+// agents in their own space, not in arbitrary spaces. This prevents cross-space
+// spawning attacks where an agent in space-a creates agents in space-b.
+func TestSpawnAgentSpaceEnforcement(t *testing.T) {
+	srv, cleanup := mustStartServer(t)
+	defer cleanup()
+	base := serverBaseURL(srv)
+
+	// Setup: Create a parent agent in space-a
+	spaceA := "space-a"
+	parentAgent := "parent-agent"
+
+	// Register parent agent in space-a via direct API call
+	payload := map[string]any{
+		"status":  "active",
+		"summary": parentAgent + ": parent in space-a",
+	}
+	resp := postJSON(t, base+"/spaces/"+spaceA+"/agent/"+parentAgent, payload)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("setup: failed to create parent agent: status %d", resp.StatusCode)
+	}
+
+	// Test 1: MCP tool - Attempt to spawn child in space-b with parent from space-a (should fail)
+	t.Run("MCP_CrossSpaceSpawnRejected", func(t *testing.T) {
+		result := callMCPTool(t, base, "spawn_agent", map[string]any{
+			"space":  "space-b",  // different space
+			"name":   "child-agent",
+			"parent": parentAgent,  // parent is in space-a
+		})
+
+		// Should contain error about space enforcement
+		if !strings.Contains(result, "space enforcement") {
+			t.Errorf("Expected space enforcement error, got: %s", result)
+		}
+		if !strings.Contains(result, "space-a") || !strings.Contains(result, "space-b") {
+			t.Errorf("Error should mention both spaces, got: %s", result)
+		}
+	})
+
+	// Test 2: MCP tool - Spawn child in same space as parent (should succeed)
+	t.Run("MCP_SameSpaceSpawnAllowed", func(t *testing.T) {
+		result := callMCPTool(t, base, "spawn_agent", map[string]any{
+			"space":  spaceA,  // same space as parent
+			"name":   "child-agent-ok",
+			"parent": parentAgent,
+		})
+
+		// Should succeed (no error)
+		if strings.Contains(strings.ToLower(result), "error") {
+			t.Errorf("Expected success, got error: %s", result)
+		}
+		// Verify response contains success indicators
+		var response map[string]any
+		if err := json.Unmarshal([]byte(result), &response); err == nil {
+			if ok, _ := response["ok"].(bool); !ok {
+				t.Errorf("Expected ok:true in response, got: %s", result)
+			}
+		}
+	})
+
+	// Test 3: MCP tool - Non-existent parent should be rejected
+	t.Run("MCP_NonExistentParentRejected", func(t *testing.T) {
+		result := callMCPTool(t, base, "spawn_agent", map[string]any{
+			"space":  spaceA,
+			"name":   "orphan-agent",
+			"parent": "non-existent-parent",
+		})
+
+		if !strings.Contains(result, "not found") {
+			t.Errorf("Expected 'not found' error for non-existent parent, got: %s", result)
+		}
+	})
+
+	// Test 4: HTTP endpoint - Attempt cross-space spawn via POST /spaces/{space}/agents
+	t.Run("HTTP_CrossSpaceSpawnRejected", func(t *testing.T) {
+		createReq := map[string]any{
+			"name":    "http-child",
+			"parent":  parentAgent,  // parent is in space-a
+			"backend": "tmux",
+		}
+		resp := postJSON(t, base+"/spaces/space-b/agents", createReq)
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusForbidden {
+			t.Errorf("Expected 403 Forbidden for cross-space spawn, got %d", resp.StatusCode)
+		}
+
+		// Read error message
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		bodyStr := string(bodyBytes)
+		if !strings.Contains(bodyStr, "space enforcement") {
+			t.Errorf("Expected space enforcement error message, got: %s", bodyStr)
+		}
+	})
+
+	// Test 5: HTTP endpoint - Same space spawn should succeed (or at least not fail on space check)
+	t.Run("HTTP_SameSpaceSpawnAllowed", func(t *testing.T) {
+		createReq := map[string]any{
+			"name":    "http-child-ok",
+			"parent":  parentAgent,  // parent is in space-a
+			"backend": "tmux",
+		}
+		resp := postJSON(t, base+"/spaces/"+spaceA+"/agents", createReq)
+		defer resp.Body.Close()
+
+		// Should not be rejected for space enforcement (may fail for other reasons like no tmux)
+		if resp.StatusCode == http.StatusForbidden {
+			bodyBytes, _ := io.ReadAll(resp.Body)
+			if strings.Contains(string(bodyBytes), "space enforcement") {
+				t.Errorf("Same-space spawn should not be rejected by space enforcement")
+			}
+		}
+	})
+
+	// Test 6: No parent specified - should be allowed (backward compatibility)
+	t.Run("MCP_NoParentAllowed", func(t *testing.T) {
+		result := callMCPTool(t, base, "spawn_agent", map[string]any{
+			"space": "space-c",  // any space
+			"name":  "independent-agent",
+			// no parent specified
+		})
+
+		// Should not fail on space enforcement (may fail for other reasons)
+		if strings.Contains(result, "space enforcement") {
+			t.Errorf("Spawn without parent should not trigger space enforcement, got: %s", result)
+		}
+	})
+}

@@ -187,3 +187,16 @@ func pruneNotifications(ag *AgentUpdate) {
 	}
 	ag.Notifications = append(unread, read...)
 }
+
+// findAgentSpace searches all spaces to find which space contains the specified agent.
+// Returns the space name and true if found, empty string and false otherwise.
+// Must be called with s.mu.RLock held.
+func (s *Server) findAgentSpace(agentName string) (string, bool) {
+	for spaceName, ks := range s.spaces {
+		canonical := resolveAgentName(ks, agentName)
+		if _, exists := ks.Agents[canonical]; exists {
+			return spaceName, true
+		}
+	}
+	return "", false
+}

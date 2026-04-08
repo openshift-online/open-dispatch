@@ -1543,6 +1543,27 @@ func (s *Server) handleCreateAgents(w http.ResponseWriter, r *http.Request, spac
 		return
 	}
 
+	// Space enforcement (SEC-007): When a parent is specified, enforce that the
+	// new agent is created in the same space as the parent. This prevents agents
+	// from being spawned in arbitrary spaces via the HTTP API.
+	if req.Parent != "" {
+		s.mu.RLock()
+		parentSpace, parentFound := s.findAgentSpace(req.Parent)
+		s.mu.RUnlock()
+
+		if !parentFound {
+			writeJSONError(w, fmt.Sprintf("parent agent %q not found in any space", req.Parent), http.StatusBadRequest)
+			return
+		}
+		if parentSpace != spaceName {
+			writeJSONError(w, fmt.Sprintf(
+				"space enforcement: agent %q in space %q cannot spawn agents in space %q",
+				req.Parent, parentSpace, spaceName,
+			), http.StatusForbidden)
+			return
+		}
+	}
+
 	var createOpts SessionCreateOpts
 	if backend.Name() == "ambient" {
 		sessionName := tmuxDefaultSession(spaceName, req.Name)
